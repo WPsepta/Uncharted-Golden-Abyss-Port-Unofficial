@@ -330,28 +330,30 @@ void android_main(android_app* app) {
                          "lalu coba lagi.");
         ANativeActivity_finish(app->activity);
         return;
-    } else {
-        const std::string dir = asset_dir;
-        std::thread([dir] {
-            AssetCensus c = scan_assets(dir.c_str());
-            // Reopen and append census (overlay logf appends too).
-            ui::overlay_logf("asset census @ %s", dir.c_str());
-            ui::overlay_logf("  xvag=%llu  btex=%llu  bsm=%llu  bsanim=%llu  hkx=%llu",
-                             (unsigned long long)c.xvag, (unsigned long long)c.btex,
-                             (unsigned long long)c.bsm, (unsigned long long)c.bsanim,
-                             (unsigned long long)c.hkx);
-            ui::overlay_logf("  bsp=%llu  bnk=%llu  bsfnt=%llu  png=%llu  csv=%llu  dll=%llu  other=%llu",
-                             (unsigned long long)c.bsp, (unsigned long long)c.bnk,
-                             (unsigned long long)c.bsfnt, (unsigned long long)c.png,
-                             (unsigned long long)c.csv, (unsigned long long)c.dll,
-                             (unsigned long long)c.other);
-            ui::overlay_logf("  total=%llu  errors=%llu",
-                             (unsigned long long)c.total, (unsigned long long)c.errors);
-            if (c.total == 0) {
-                ui::overlay_logf("WARN: folder aset kosong atau tidak terbaca "
-                                 "(izin? isi dump?).");
-            }
-        }).detach();
+    }
+
+    // Scan rekursif (termasuk sub-folder seperti extracted/) — sinkron agar
+    // keputusan render loop berdasarkan hasil nyata, bukan hang di loop hitam.
+    const std::string dir = asset_dir;
+    AssetCensus c = scan_assets(dir.c_str());   // recursive_directory_iterator
+    ui::overlay_logf("asset census @ %s (recursive)", dir.c_str());
+    ui::overlay_logf("  xvag=%llu  btex=%llu  bsm=%llu  bsanim=%llu  hkx=%llu",
+                     (unsigned long long)c.xvag, (unsigned long long)c.btex,
+                     (unsigned long long)c.bsm, (unsigned long long)c.bsanim,
+                     (unsigned long long)c.hkx);
+    ui::overlay_logf("  bsp=%llu  bnk=%llu  bsfnt=%llu  png=%llu  csv=%llu  dll=%llu  other=%llu",
+                     (unsigned long long)c.bsp, (unsigned long long)c.bnk,
+                     (unsigned long long)c.bsfnt, (unsigned long long)c.png,
+                     (unsigned long long)c.csv, (unsigned long long)c.dll,
+                     (unsigned long long)c.other);
+    ui::overlay_logf("  total=%llu  errors=%llu",
+                     (unsigned long long)c.total, (unsigned long long)c.errors);
+    if (c.btex == 0 && c.bsm == 0) {
+        ui::overlay_logf("ERROR: aset game tidak ditemukan (btex=0, bsm=0). "
+                         "Cek path dan isi folder (termasuk sub-folder). "
+                         "Kembali ke launcher.");
+        ANativeActivity_finish(app->activity);
+        return;
     }
 #if RC_WITH_GAME_CODE
     ui::overlay_logf("build mode: FULL (gen/ parts ditemukan)");

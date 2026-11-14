@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Performance"
+        android:textColor="@color/gold"
+        android:textStyle="bold"
+        android:textSize="14sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Batas Frame Rate (FPS):"
+        android:textSize="12sp"
+        android:textColor="@color/text" />
+
+    <RadioGroup
+        android:id="@+id/rgFps"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="4dp">
+        <RadioButton android:id="@+id/fps30" android:text="30" android:textSize="12sp" android:textColor="@color/text" />
+        <RadioButton android:id="@+id/fps60" android:text="60" android:textSize="12sp" android:textColor="@color/text" android:checked="true" />
+        <RadioButton android:id="@+id/fpsUnlimited" android:text="∞" android:textSize="12sp" android:textColor="@color/text" />
+    </RadioGroup>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Sensitivity:"
+        android:textSize="12sp"
+        android:textColor="@color/text" />
+
+    <SeekBar
+        android:id="@+id/sbSensitivity"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:max="100"
+        android:progress="50"
+        android:progressTint="@color/gold" />
+</LinearLayout>

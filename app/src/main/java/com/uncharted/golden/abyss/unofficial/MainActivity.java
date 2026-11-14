@@ -1,11 +1,8 @@
 package com.uncharted.golden.abyss.unofficial;
 
-import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.NativeActivity;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.DocumentsContract;
@@ -13,9 +10,6 @@ import android.provider.Settings;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.RadioGroup;
 import android.widget.SeekBar;
 import android.widget.Spinner;
@@ -23,11 +17,20 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
+import androidx.viewpager2.adapter.FragmentStateAdapter;
+import androidx.viewpager2.widget.ViewPager2;
+
+import com.google.android.material.tabs.TabLayout;
+import com.google.android.material.tabs.TabLayoutMediator;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
 
     private static final String REPO_URL =
             "https://github.com/WPsepta/Uncharted-Golden-Abyss-Port-Unofficial.git";
@@ -36,10 +39,7 @@ public class MainActivity extends Activity {
     private TextView tvAssetStatus;
     private Button btnStart;
     private TextView tvLog;
-    private LinearLayout githubFooter;
-
-    private View contentLauncher, contentPerf, contentCtrl, contentSys, contentInfo, contentLog;
-    private View currentContent;
+    private View githubFooter;
 
     private RadioGroup rgFps;
     private Spinner spTouchPreset;
@@ -47,75 +47,55 @@ public class MainActivity extends Activity {
     private Switch swShowFps;
     private Switch swVSync;
 
+    private ViewPager2 viewPager;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // MANAGE_EXTERNAL_STORAGE
         ensureStoragePermission();
 
         findViewById(R.id.btnGithub).setOnClickListener(v -> {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)));
         });
 
-        tvAssetStatus = findViewById(R.id.tvAssetStatus);
-        btnStart = findViewById(R.id.btnStart);
-        tvLog = findViewById(R.id.tvLog);
         githubFooter = findViewById(R.id.githubFooter);
 
-        contentLauncher = findViewById(R.id.contentLauncher);
-        contentPerf = findViewById(R.id.contentPerf);
-        contentCtrl = findViewById(R.id.contentCtrl);
-        contentSys = findViewById(R.id.contentSys);
-        contentInfo = findViewById(R.id.contentInfo);
-        contentLog = findViewById(R.id.contentLog);
-
-        btnStart.setOnClickListener(v -> {
-            if (!assetSelected()) {
-                Toast.makeText(this, "Pilih folder aset game dulu", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            writeSettings();
-            Intent i = new Intent(this, NativeActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-        });
-        findViewById(R.id.btnPickAssets).setOnClickListener(v -> openFolderPicker());
-        findViewById(R.id.btnLog).setOnClickListener(v -> showLogDialog());
-
-        rgFps = findViewById(R.id.rgFps);
-        spTouchPreset = findViewById(R.id.spTouchPreset);
-        sbSensitivity = findViewById(R.id.sbSensitivity);
-        swShowFps = findViewById(R.id.swShowFps);
-        swVSync = findViewById(R.id.swVSync);
-
-        String[] presets = {"Thumb Left (default)", "Thumb Right", "Classic D-pad + Face"};
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_item, presets);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spTouchPreset.setAdapter(adapter);
-
         // Tabs
-        findViewById(R.id.tabLauncher).setOnClickListener(v -> showTab(contentLauncher));
-        findViewById(R.id.tabPerf).setOnClickListener(v -> showTab(contentPerf));
-        findViewById(R.id.tabCtrl).setOnClickListener(v -> showTab(contentCtrl));
-        findViewById(R.id.tabSys).setOnClickListener(v -> showTab(contentSys));
-        findViewById(R.id.tabInfo).setOnClickListener(v -> showTab(contentInfo));
-        findViewById(R.id.tabLog).setOnClickListener(v -> { showTab(contentLog); refreshLog(); });
+        String[] tabNames = {"Launcher", "Performance", "Controls", "System", "Info", "Log"};
+        int[] tabLayouts = {
+                R.layout.page_launcher,
+                R.layout.page_perf,
+                R.layout.page_ctrl,
+                R.layout.page_sys,
+                R.layout.page_info,
+                R.layout.page_log
+        };
 
-        showTab(contentLauncher);
+        viewPager = findViewById(R.id.viewPager);
+        TabLayout tabLayout = findViewById(R.id.tabLayout);
+        viewPager.setAdapter(new PageAdapter(this, tabLayouts));
+        new TabLayoutMediator(tabLayout, viewPager, (tab, position) -> tab.setText(tabNames[position])).attach();
+
+        viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+            @Override
+            public void onPageSelected(int position) {
+                // GitHub logo hanya di tab Launcher (index 0).
+                githubFooter.setVisibility(position == 0 ? View.VISIBLE : View.GONE);
+                if (position == 5) refreshLog();
+            }
+        });
 
         readSettings();
         updateStartGate();
     }
 
     private void ensureStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
                 try {
-                    Intent i = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                    startActivity(i);
+                    startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
                 } catch (Exception e) {
                     android.util.Log.e("Launcher", "cannot open storage settings", e);
                 }
@@ -123,29 +103,80 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showTab(View target) {
-        contentLauncher.setVisibility(View.GONE);
-        contentPerf.setVisibility(View.GONE);
-        contentCtrl.setVisibility(View.GONE);
-        contentSys.setVisibility(View.GONE);
-        contentInfo.setVisibility(View.GONE);
-        contentLog.setVisibility(View.GONE);
-        target.setVisibility(View.VISIBLE);
-        currentContent = target;
-        // GitHub logo hanya di tab Launcher.
-        githubFooter.setVisibility(target == contentLauncher ? View.VISIBLE : View.GONE);
+    // ------------------------------------------------------------------
+    // PageFragment
+    // ------------------------------------------------------------------
+    public static class PageFragment extends Fragment {
+        private static final String ARG_LAYOUT = "layout";
+        public static PageFragment newInstance(int layoutRes) {
+            PageFragment f = new PageFragment();
+            Bundle b = new Bundle();
+            b.putInt(ARG_LAYOUT, layoutRes);
+            f.setArguments(b);
+            return f;
+        }
+
+        @Override
+        public View onCreateView(android.view.LayoutInflater inflater, android.view.ViewGroup container, Bundle savedInstanceState) {
+            int layout = getArguments().getInt(ARG_LAYOUT);
+            View v = inflater.inflate(layout, container, false);
+            MainActivity a = (MainActivity) getActivity();
+            if (a == null) return v;
+
+            if (layout == R.layout.page_launcher) {
+                a.tvAssetStatus = v.findViewById(R.id.tvAssetStatus);
+                a.btnStart = v.findViewById(R.id.btnStart);
+                Button btnPick = v.findViewById(R.id.btnPickAssets);
+                btnPick.setOnClickListener(x -> a.openFolderPicker());
+                a.btnStart.setOnClickListener(x -> a.startGame());
+                a.updateStartGate();
+                String dir = a.assetDirForIni();
+                if (dir != null && !dir.isEmpty()) {
+                    a.tvAssetStatus.setText("Folder aset: " + dir);
+                }
+            } else if (layout == R.layout.page_perf) {
+                a.rgFps = v.findViewById(R.id.rgFps);
+                a.sbSensitivity = v.findViewById(R.id.sbSensitivity);
+                a.readSettingsInto(a);
+            } else if (layout == R.layout.page_ctrl) {
+                a.spTouchPreset = v.findViewById(R.id.spTouchPreset);
+                a.swShowFps = v.findViewById(R.id.swShowFps);
+                String[] presets = {"Thumb Left (default)", "Thumb Right", "Classic D-pad + Face"};
+                ArrayAdapter<String> adapter = new ArrayAdapter<>(a, android.R.layout.simple_spinner_item, presets);
+                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                a.spTouchPreset.setAdapter(adapter);
+                a.readSettingsInto(a);
+            } else if (layout == R.layout.page_sys) {
+                a.swVSync = v.findViewById(R.id.swVSync);
+                Button btnLog = v.findViewById(R.id.btnLog);
+                btnLog.setOnClickListener(x -> a.showLog());
+                a.readSettingsInto(a);
+            } else if (layout == R.layout.page_log) {
+                a.tvLog = v.findViewById(R.id.tvLog);
+                a.refreshLog();
+            }
+            return v;
+        }
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        updateStartGate();
+    public static class PageAdapter extends FragmentStateAdapter {
+        private final int[] layouts;
+        public PageAdapter(FragmentActivity fa, int[] layouts) {
+            super(fa);
+            this.layouts = layouts;
+        }
+        @Override
+        public int getItemCount() { return layouts.length; }
+        @Override
+        public Fragment createFragment(int position) {
+            return PageFragment.newInstance(layouts[position]);
+        }
     }
 
     // ------------------------------------------------------------------
     // Asset folder picker
     // ------------------------------------------------------------------
-    private void openFolderPicker() {
+    void openFolderPicker() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                  | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -176,14 +207,11 @@ public class MainActivity extends Activity {
         p.edit().putString("asset_uri", uri.toString()).apply();
         p.edit().putString("asset_dir", path).apply();
 
-        tvAssetStatus.setText("Folder aset: " + path);
+        if (tvAssetStatus != null) tvAssetStatus.setText("Folder aset: " + path);
         writeSettings();
         updateStartGate();
     }
 
-    /**
-     * Mapping SAF tree URI -> path absolut, pakai DocumentsContract.getTreeDocumentId.
-     */
     private static String derivePrimaryPath(Uri uri) {
         String docId = null;
         try {
@@ -223,54 +251,57 @@ public class MainActivity extends Activity {
         return uri != null ? uri : "";
     }
 
-    private void updateStartGate() {
+    void updateStartGate() {
         boolean ok = assetSelected();
-        btnStart.setEnabled(ok);
-        btnStart.setAlpha(ok ? 1.0f : 0.4f);
-        if (ok) {
+        if (btnStart != null) {
+            btnStart.setEnabled(ok);
+            btnStart.setAlpha(ok ? 1.0f : 0.4f);
+        }
+        if (ok && tvAssetStatus != null) {
             String dir = assetDirForIni();
             tvAssetStatus.setText("Folder aset: " + (dir.isEmpty() ? assetUriForIni() : dir));
         }
     }
 
-    // ------------------------------------------------------------------
-    // Settings
-    // ------------------------------------------------------------------
-    private File settingsFile() {
-        return new File(getFilesDir(), "settings.ini");
-    }
-
-    private File logFile() {
-        return new File(getFilesDir(), "recomp.log");
-    }
-
-    private void readSettings() {
-        android.content.SharedPreferences p =
-                getSharedPreferences("launcher", MODE_PRIVATE);
-        int fps = p.getInt("fps", 30);
-        int fpsId = fps == 60 ? R.id.fps60 : fps == 0 ? R.id.fpsUnlimited : R.id.fps30;
-        rgFps.check(fpsId);
-        spTouchPreset.setSelection(p.getInt("touch_preset", 0));
-        sbSensitivity.setProgress(p.getInt("sensitivity", 50));
-        swShowFps.setChecked(p.getBoolean("show_fps", false));
-        swVSync.setChecked(p.getBoolean("vsync", true));
-        String dir = p.getString("asset_dir", "");
-        String uri = p.getString("asset_uri", "");
-        if ((dir != null && !dir.isEmpty()) || (uri != null && !uri.isEmpty())) {
-            tvAssetStatus.setText("Folder aset: " + (dir == null || dir.isEmpty() ? uri : dir));
+    void startGame() {
+        if (!assetSelected()) {
+            Toast.makeText(this, "Pilih folder aset game dulu", Toast.LENGTH_SHORT).show();
+            return;
         }
+        writeSettings();
+        Intent i = new Intent(this, NativeActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
+    }
+
+    void readSettings() { readSettingsInto(this); }
+
+    void readSettingsInto(MainActivity a) {
+        android.content.SharedPreferences p = a.getSharedPreferences("launcher", MODE_PRIVATE);
+        int fps = p.getInt("fps", 30);
+        if (a.rgFps != null) {
+            int fpsId = fps == 60 ? R.id.fps60 : fps == 0 ? R.id.fpsUnlimited : R.id.fps30;
+            a.rgFps.check(fpsId);
+        }
+        if (a.spTouchPreset != null) a.spTouchPreset.setSelection(p.getInt("touch_preset", 0));
+        if (a.sbSensitivity != null) a.sbSensitivity.setProgress(p.getInt("sensitivity", 50));
+        if (a.swShowFps != null) a.swShowFps.setChecked(p.getBoolean("show_fps", false));
+        if (a.swVSync != null) a.swVSync.setChecked(p.getBoolean("vsync", true));
     }
 
     private void writeSettings() {
-        int checked = rgFps.getCheckedRadioButtonId();
-        int fps = checked == R.id.fps60 ? 60 : checked == R.id.fpsUnlimited ? 0 : 30;
-        int preset = spTouchPreset.getSelectedItemPosition();
-        int sensitivity = sbSensitivity.getProgress();
-        boolean showFps = swShowFps.isChecked();
-        boolean vsync = swVSync.isChecked();
+        int fps = 30, preset = 0, sensitivity = 50;
+        boolean showFps = false, vsync = true;
+        if (rgFps != null) {
+            int checked = rgFps.getCheckedRadioButtonId();
+            fps = checked == R.id.fps60 ? 60 : checked == R.id.fpsUnlimited ? 0 : 30;
+        }
+        if (spTouchPreset != null) preset = spTouchPreset.getSelectedItemPosition();
+        if (sbSensitivity != null) sensitivity = sbSensitivity.getProgress();
+        if (swShowFps != null) showFps = swShowFps.isChecked();
+        if (swVSync != null) vsync = swVSync.isChecked();
 
-        android.content.SharedPreferences p =
-                getSharedPreferences("launcher", MODE_PRIVATE);
+        android.content.SharedPreferences p = getSharedPreferences("launcher", MODE_PRIVATE);
         p.edit()
             .putInt("fps", fps)
             .putInt("touch_preset", preset)
@@ -287,7 +318,7 @@ public class MainActivity extends Activity {
                 + "asset_dir=" + assetDirForIni() + "\n"
                 + "asset_uri=" + assetUriForIni() + "\n";
         try {
-            java.io.FileOutputStream out = new java.io.FileOutputStream(settingsFile());
+            java.io.FileOutputStream out = new java.io.FileOutputStream(new File(getFilesDir(), "settings.ini"));
             out.write(ini.getBytes(StandardCharsets.UTF_8));
             out.close();
         } catch (java.io.IOException e) {
@@ -295,9 +326,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showLogDialog() {
+    void showLog() {
+        File f = new File(getFilesDir(), "recomp.log");
         String text;
-        File f = logFile();
         if (!f.exists()) {
             text = "recomp.log belum ada.\n\nJalankan game minimal sekali.";
         } else {
@@ -314,11 +345,14 @@ public class MainActivity extends Activity {
                 text = "Gagal membaca log: " + e.getMessage();
             }
         }
-        tvLog.setText(text);
-        showTab(contentLog);
+        if (tvLog != null) tvLog.setText(text);
     }
 
-    private void refreshLog() {
-        showLogDialog();
+    void refreshLog() { showLog(); }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateStartGate();
     }
 }

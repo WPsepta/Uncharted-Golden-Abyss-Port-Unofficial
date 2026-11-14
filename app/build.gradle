@@ -65,5 +65,9 @@ android {
 }
 
 dependencies {
-    // No AndroidX: plain framework views keep the launcher tiny.
+    // TabLayout + ViewPager2 (standard Android)
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.viewpager2:viewpager2:1.0.0'
+    implementation 'androidx.fragment:fragment:1.6.2'
 }
