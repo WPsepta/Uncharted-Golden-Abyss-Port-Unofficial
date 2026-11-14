@@ -112,9 +112,15 @@ void gear_button() {
                            | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
                            | ImGuiWindowFlags_NoNav;
     ImGui::Begin("##gear", nullptr, flags);
-    if (ImGui::Button(" GEAR ", ImVec2(72.0f, 44.0f))) {
+    // Ikon gear (putih agak gelap) di tengah atas, bukan teks "GEAR".
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.20f, 0.24f, 0.75f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.30f, 0.34f, 0.90f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.35f, 0.37f, 0.41f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.85f, 0.88f, 1.00f));
+    if (ImGui::Button(u8"\u2699", ImVec2(40.0f, 40.0f))) {
         g.panel_open = true;
     }
+    ImGui::PopStyleColor(4);
     ImGui::SetItemTooltip("Pengaturan (Back = sembunyikan/tampilkan)");
     ImGui::End();
 }

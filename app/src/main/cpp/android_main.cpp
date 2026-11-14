@@ -40,6 +40,30 @@
 #define LOG_TAG "uncharted"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define EGLLOG(...) __android_log_print(ANDROID_LOG_DEBUG, "EGL_DEBUG", __VA_ARGS__)
+
+static const char* egl_err_str(EGLint e) {
+    switch (e) {
+        case EGL_SUCCESS: return "EGL_SUCCESS";
+        case EGL_NOT_INITIALIZED: return "EGL_NOT_INITIALIZED";
+        case EGL_BAD_DISPLAY: return "EGL_BAD_DISPLAY";
+        case EGL_BAD_ATTRIBUTE: return "EGL_BAD_ATTRIBUTE";
+        case EGL_BAD_PARAMETER: return "EGL_BAD_PARAMETER";
+        case EGL_BAD_CONFIG: return "EGL_BAD_CONFIG";
+        case EGL_BAD_CONTEXT: return "EGL_BAD_CONTEXT";
+        case EGL_BAD_SURFACE: return "EGL_BAD_SURFACE";
+        case EGL_BAD_MATCH: return "EGL_BAD_MATCH";
+        case EGL_BAD_ACCESS: return "EGL_BAD_ACCESS";
+        case EGL_BAD_ALLOC: return "EGL_BAD_ALLOC";
+        case EGL_BAD_NATIVE_PIXMAP: return "EGL_BAD_NATIVE_PIXMAP";
+        case EGL_BAD_NATIVE_WINDOW: return "EGL_BAD_NATIVE_WINDOW";
+        case EGL_CONTEXT_LOST: return "EGL_CONTEXT_LOST";
+        default: return "EGL_UNKNOWN";
+    }
+}
+
+// Runtime toggle: Mali/Unisoc sering bermasalah dengan ES3.0.
+static bool force_es2 = true;
 
 // Read one "key=value" line from settings.ini (last one wins).
 static std::string read_ini_value(const char* path, const char* key) {
@@ -123,31 +147,87 @@ void join_paths(char* dst, size_t n, const char* base, const char* file) {
 }
 
 bool egl_init(AppState* s) {
+    EGLLOG("eglGetDisplay(EGL_DEFAULT_DISPLAY)");
     s->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (s->display == EGL_NO_DISPLAY) return false;
-    if (!eglInitialize(s->display, nullptr, nullptr)) return false;
+    EGLLOG("  -> display=%p (EGL_NO_DISPLAY=%p)", (void*)s->display, (void*)EGL_NO_DISPLAY);
+    if (s->display == EGL_NO_DISPLAY) {
+        EGLLOG("  FAIL: EGL_NO_DISPLAY, eglGetError=%s", egl_err_str(eglGetError()));
+        return false;
+    }
+
+    EGLint major = 0, minor = 0;
+    EGLLOG("eglInitialize(display, &major, &minor)");
+    if (!eglInitialize(s->display, &major, &minor)) {
+        EGLLOG("  FAIL: eglInitialize, eglGetError=%s", egl_err_str(eglGetError()));
+        return false;
+    }
+    EGLLOG("  OK: EGL %d.%d", major, minor);
+
+    EGLLOG("eglBindAPI(EGL_OPENGL_ES_API)");
+    EGLBoolean bindRes = eglBindAPI(EGL_OPENGL_ES_API);
+    EGLLOG("  -> %s, eglGetError=%s", bindRes == EGL_TRUE ? "EGL_TRUE" : "EGL_FALSE", egl_err_str(eglGetError()));
+    if (bindRes != EGL_TRUE) return false;
+
+    if (force_es2) {
+        EGLLOG("Requesting OpenGL ES 2.0 context (Mali fallback mode)");
+    } else {
+        EGLLOG("Requesting OpenGL ES 3.0 context");
+    }
 
     const EGLint cfg_attr[] = {
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+        EGL_RENDERABLE_TYPE, force_es2 ? EGL_OPENGL_ES2_BIT : EGL_OPENGL_ES3_BIT,
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
         EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_RED_SIZE, 8, EGL_ALPHA_SIZE, 8,
         EGL_DEPTH_SIZE, 16,
         EGL_NONE
     };
+    EGLLOG("eglChooseConfig(display, cfg_attr, &cfg, 1, &n) RENDERABLE_TYPE=%s",
+           force_es2 ? "EGL_OPENGL_ES2_BIT" : "EGL_OPENGL_ES3_BIT");
     EGLConfig cfg;
     EGLint n = 0;
-    if (!eglChooseConfig(s->display, cfg_attr, &cfg, 1, &n) || n < 1) return false;
+    if (!eglChooseConfig(s->display, cfg_attr, &cfg, 1, &n) || n < 1) {
+        EGLLOG("  FAIL: eglChooseConfig, n=%d, eglGetError=%s", n, egl_err_str(eglGetError()));
+        return false;
+    }
+    EGLLOG("  OK: %d config(s) found", n);
+    EGLint v = 0;
+    eglGetConfigAttrib(s->display, cfg, EGL_RED_SIZE, &v); EGLLOG("  cfg RED_SIZE=%d", v);
+    eglGetConfigAttrib(s->display, cfg, EGL_GREEN_SIZE, &v); EGLLOG("  cfg GREEN_SIZE=%d", v);
+    eglGetConfigAttrib(s->display, cfg, EGL_BLUE_SIZE, &v); EGLLOG("  cfg BLUE_SIZE=%d", v);
+    eglGetConfigAttrib(s->display, cfg, EGL_ALPHA_SIZE, &v); EGLLOG("  cfg ALPHA_SIZE=%d", v);
+    eglGetConfigAttrib(s->display, cfg, EGL_DEPTH_SIZE, &v); EGLLOG("  cfg DEPTH_SIZE=%d", v);
+    eglGetConfigAttrib(s->display, cfg, EGL_RENDERABLE_TYPE, &v); EGLLOG("  cfg RENDERABLE_TYPE=0x%x", v);
 
     EGLint fmt = 0;
     eglGetConfigAttrib(s->display, cfg, EGL_NATIVE_VISUAL_ID, &fmt);
+    EGLLOG("ANativeWindow_setBuffersGeometry(window=%p, 0, 0, fmt=%d)", (void*)s->app->window, fmt);
     ANativeWindow_setBuffersGeometry(s->app->window, 0, 0, fmt);
 
+    EGLLOG("eglCreateWindowSurface(display, cfg, window, nullptr) window=%p", (void*)s->app->window);
     s->surface = eglCreateWindowSurface(s->display, cfg, s->app->window, nullptr);
+    EGLLOG("  -> surface=%p, eglGetError=%s", (void*)s->surface, egl_err_str(eglGetError()));
     if (s->surface == EGL_NO_SURFACE) return false;
-    const EGLint ctx_attr[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+
+    const EGLint ctx_attr[] = { EGL_CONTEXT_CLIENT_VERSION, force_es2 ? 2 : 3, EGL_NONE };
+    EGLLOG("eglCreateContext(display, cfg, EGL_NO_CONTEXT, {CLIENT_VERSION=%d})", force_es2 ? 2 : 3);
     s->context = eglCreateContext(s->display, cfg, EGL_NO_CONTEXT, ctx_attr);
+    EGLLOG("  -> context=%p, eglGetError=%s", (void*)s->context, egl_err_str(eglGetError()));
     if (s->context == EGL_NO_CONTEXT) return false;
-    return eglMakeCurrent(s->display, s->surface, s->surface, s->context) == EGL_TRUE;
+
+    EGLLOG("eglMakeCurrent(display, surface, surface, context)");
+    EGLBoolean mc = eglMakeCurrent(s->display, s->surface, s->surface, s->context);
+    EGLLOG("  -> %s, eglGetError=%s", mc == EGL_TRUE ? "EGL_TRUE" : "EGL_FALSE", egl_err_str(eglGetError()));
+    if (mc != EGL_TRUE) return false;
+
+    const GLubyte* vendor = glGetString(GL_VENDOR);
+    const GLubyte* renderer = glGetString(GL_RENDERER);
+    const GLubyte* version = glGetString(GL_VERSION);
+    EGLLOG("GL_VENDOR=%s", vendor ? (const char*)vendor : "(null)");
+    EGLLOG("GL_RENDERER=%s", renderer ? (const char*)renderer : "(null)");
+    EGLLOG("GL_VERSION=%s", version ? (const char*)version : "(null)");
+    EGLLOG("glGetError() after glGetString = 0x%x", glGetError());
+
+    return true;
 }
 
 void egl_shutdown(AppState* s) {
@@ -179,7 +259,11 @@ void imgui_init(AppState* s, ANativeWindow* window) {
     style.GrabRounding = 8.0f;
 
     ImGui_ImplAndroid_Init(window);
-    ImGui_ImplOpenGL3_Init("#version 300 es");
+    if (force_es2) {
+        ImGui_ImplOpenGL3_Init("#version 100");
+    } else {
+        ImGui_ImplOpenGL3_Init("#version 300 es");
+    }
     s->imgui_ready = true;
 }
 
@@ -219,6 +303,13 @@ void on_cmd(android_app* app, int32_t cmd) {
             s->window_width = ANativeWindow_getWidth(app->window);
             s->window_height = ANativeWindow_getHeight(app->window);
             imgui_init(s, app->window);
+            // SMOKE TEST: red frame to verify EGL/GL pipeline before render loop.
+            glViewport(0, 0, s->window_width, s->window_height);
+            glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            eglSwapBuffers(s->display, s->surface);
+            EGLLOG("SMOKE TEST: red frame swapped, glGetError=0x%x", glGetError());
+            ui::overlay_logf("SMOKE TEST: red frame swapped, glGetError=0x%x", glGetError());
             s->running = true;
             ui::overlay_logf("game window init: %dx%d", s->window_width, s->window_height);
 #if RC_WITH_GAME_CODE

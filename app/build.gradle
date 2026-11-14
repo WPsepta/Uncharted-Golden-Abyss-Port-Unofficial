@@ -16,7 +16,7 @@ android {
 
         // Vita is ARMv7; the recompiled code is plain C++, run it on arm64-v8a.
         ndk {
-            abiFilters 'arm64-v8a'
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
         }
         externalNativeBuild {
             cmake {
