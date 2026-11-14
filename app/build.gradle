@@ -1,0 +1,69 @@
+// app/build.gradle — Uncharted: Golden Abyss (Unofficial Port)
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.uncharted.golden.abyss.unofficial'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.uncharted.golden.abyss.unofficial'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0-unofficial'
+
+        // Vita is ARMv7; the recompiled code is plain C++, run it on arm64-v8a.
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++20 -O2 -fno-finite-math-only'
+                arguments '-DANDROID_STL=c++_static'
+            }
+        }
+    }
+
+    // Debug-signed artifact for CI. Store builds need their own release
+    // keystore (NOT committed — see README).
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+        release {
+            minifyEnabled false
+            // Keep the artifact unsigned unless you provide your own keystore;
+            // never commit the decrypted game or a real keystore.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    packagingOptions {
+        // The generated parts are huge; keep symbols out of the APK.
+        doNotStrip '*.so'
+    }
+}
+
+dependencies {
+    // No AndroidX: plain framework views keep the launcher tiny.
+}

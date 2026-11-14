@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------
+# NEVER commit game content / build outputs.
+# ---------------------------------------------------------------------------
+# Recompiled / decrypted game code (generated locally from user's own dump)
+/gen/
+/app/src/main/cpp/gen/
+/app/src/main/cpp/recomp.cpp
+/app/src/main/cpp/recomp.h
+# Game assets / dumps / dumps directories
+extracted/
+assets/
+PCSA00029/
+uncharted_decrypted*
+*.self
+*.elf
+*.bin
+*.vpk
+gamedata.bin
+work.bin
+# Build outputs
+.gradle/
+build/
+/app/build/
+local.properties
+*.apk
+*.aab
+*.so
+*.keystore
+!/app/debug.keystore
+# IDE
+.idea/
+*.iml
+.vscode/
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Manual upload artifacts must never enter the repo
+source_code.zip
+*.zip

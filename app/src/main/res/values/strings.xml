@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Uncharted: Golden Abyss (Unofficial)</string>
+    <string name="title">Uncharted: Golden Abyss</string>
+    <string name="subtitle">Unofficial Port — Launcher</string>
+    <string name="start_game">MULAI GAME</string>
+    <string name="read_log">Baca Log Terakhir</string>
+    <string name="settings">Pengaturan</string>
+    <string name="performance">Performance</string>
+    <string name="controls">Controls</string>
+    <string name="system">System</string>
+    <string name="fps_limit">FPS Limit</string>
+    <string name="resolution_scale">Resolution Scale</string>
+    <string name="touch_preset">Touch Preset</string>
+    <string name="sensitivity">Sensitivity</string>
+    <string name="show_fps">Tampilkan FPS</string>
+    <string name="github_repo">github.com/WPsepta/Uncharted-Golden-Abyss-Port-Unofficial</string>
+    <string name="legal_short">Scaffolding asli (MIT). Konten game tidak didistribusikan; APK CI adalah launcher saja — lihat README.</string>
+</resources>

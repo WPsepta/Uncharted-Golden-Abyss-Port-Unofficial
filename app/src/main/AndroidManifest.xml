@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Engine membaca isi folder aset yang dipilih user lewat SAF;
+         MANAGE_EXTERNAL_STORAGE diperlukan untuk membaca path /storage/... . -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <application
+        android:label="Uncharted: Golden Abyss (Unofficial)"
+        android:icon="@drawable/ic_launcher"
+        android:theme="@style/AppTheme"
+        android:allowBackup="false"
+        android:supportsRtl="true">
+
+        <!-- Java launcher: main entry point with UI. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- NativeActivity: boots the recompiled ARMv7 image + ImGui overlay. -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:exported="false"
+            android:label="Uncharted (Native)"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize">
+            <meta-data android:name="android.app.lib_name" android:value="uncharted" />
+        </activity>
+    </application>
+</manifest>
