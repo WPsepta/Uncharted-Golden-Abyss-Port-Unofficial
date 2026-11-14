@@ -20,9 +20,9 @@ on:
   workflow_dispatch:
     inputs:
       source_url:
-        description: 'URL source_code.zip (GitHub release asset). Opsional.'
+        description: 'URL source_code.zip (GitHub release asset).'
         required: false
-        default: ''
+        default: 'https://github.com/WPsepta/Uncharted-Golden-Abyss-Port-Unofficial/releases/download/V1/source_code.zip'
 
 permissions:
   contents: read
