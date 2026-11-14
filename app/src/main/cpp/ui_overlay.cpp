@@ -117,7 +117,7 @@ void gear_button() {
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.30f, 0.34f, 0.90f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.35f, 0.37f, 0.41f, 1.00f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.85f, 0.88f, 1.00f));
-    if (ImGui::Button(u8"\u2699", ImVec2(40.0f, 40.0f))) {
+    if (ImGui::Button("\xE2\x9A\x99", ImVec2(40.0f, 40.0f))) {
         g.panel_open = true;
     }
     ImGui::PopStyleColor(4);
