@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Uncharted: Golden Abyss</string>
     <string name="title">Uncharted: Golden Abyss</string>
-    <string name="subtitle">Unofficial Port — Launcher</string>
+    <string name="subtitle">Port — Launcher</string>
     <string name="start_game">MULAI GAME</string>
     <string name="read_log">Baca Log Terakhir</string>
     <string name="settings">Pengaturan</string>

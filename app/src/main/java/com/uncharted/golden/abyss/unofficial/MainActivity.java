@@ -1,66 +1,151 @@
 package com.uncharted.golden.abyss.unofficial;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.NativeActivity;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.view.View;
-import android.webkit.JavascriptInterface;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.RadioGroup;
+import android.widget.SeekBar;
+import android.widget.Spinner;
+import android.widget.Switch;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 
-/**
- * Launcher for the unofficial port — berbasis WebView.
- *
- * Memuat file:///android_asset/index.html sebagai UI. JavaScript memanggil
- * Android.pickFolder() / Android.startGame() / Android.updatePath(path).
- */
 public class MainActivity extends Activity {
 
     private static final String REPO_URL =
             "https://github.com/WPsepta/Uncharted-Golden-Abyss-Port-Unofficial.git";
     private static final int REQ_PICK_ASSETS = 4217;
 
-    private WebView webView;
+    private TextView tvAssetStatus;
+    private Button btnStart;
+    private TextView tvLog;
+    private LinearLayout githubFooter;
+
+    private View contentLauncher, contentPerf, contentCtrl, contentSys, contentInfo, contentLog;
+    private View currentContent;
+
+    private RadioGroup rgFps;
+    private Spinner spTouchPreset;
+    private SeekBar sbSensitivity;
+    private Switch swShowFps;
+    private Switch swVSync;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
 
-        webView = new WebView(this);
-        WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true);
-        webView.addJavascriptInterface(new WebAppInterface(this), "Android");
-        webView.loadUrl("file:///android_asset/index.html");
-        setContentView(webView);
+        // MANAGE_EXTERNAL_STORAGE
+        ensureStoragePermission();
 
-        // Buka repo saat footer "WPsepta" diklik? Ditangani di HTML (opsional).
+        findViewById(R.id.btnGithub).setOnClickListener(v -> {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)));
+        });
+
+        tvAssetStatus = findViewById(R.id.tvAssetStatus);
+        btnStart = findViewById(R.id.btnStart);
+        tvLog = findViewById(R.id.tvLog);
+        githubFooter = findViewById(R.id.githubFooter);
+
+        contentLauncher = findViewById(R.id.contentLauncher);
+        contentPerf = findViewById(R.id.contentPerf);
+        contentCtrl = findViewById(R.id.contentCtrl);
+        contentSys = findViewById(R.id.contentSys);
+        contentInfo = findViewById(R.id.contentInfo);
+        contentLog = findViewById(R.id.contentLog);
+
+        btnStart.setOnClickListener(v -> {
+            if (!assetSelected()) {
+                Toast.makeText(this, "Pilih folder aset game dulu", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            writeSettings();
+            Intent i = new Intent(this, NativeActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        });
+        findViewById(R.id.btnPickAssets).setOnClickListener(v -> openFolderPicker());
+        findViewById(R.id.btnLog).setOnClickListener(v -> showLogDialog());
+
+        rgFps = findViewById(R.id.rgFps);
+        spTouchPreset = findViewById(R.id.spTouchPreset);
+        sbSensitivity = findViewById(R.id.sbSensitivity);
+        swShowFps = findViewById(R.id.swShowFps);
+        swVSync = findViewById(R.id.swVSync);
+
+        String[] presets = {"Thumb Left (default)", "Thumb Right", "Classic D-pad + Face"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, presets);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spTouchPreset.setAdapter(adapter);
+
+        // Tabs
+        findViewById(R.id.tabLauncher).setOnClickListener(v -> showTab(contentLauncher));
+        findViewById(R.id.tabPerf).setOnClickListener(v -> showTab(contentPerf));
+        findViewById(R.id.tabCtrl).setOnClickListener(v -> showTab(contentCtrl));
+        findViewById(R.id.tabSys).setOnClickListener(v -> showTab(contentSys));
+        findViewById(R.id.tabInfo).setOnClickListener(v -> showTab(contentInfo));
+        findViewById(R.id.tabLog).setOnClickListener(v -> { showTab(contentLog); refreshLog(); });
+
+        showTab(contentLauncher);
+
+        readSettings();
+        updateStartGate();
+    }
+
+    private void ensureStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    Intent i = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                    startActivity(i);
+                } catch (Exception e) {
+                    android.util.Log.e("Launcher", "cannot open storage settings", e);
+                }
+            }
+        }
+    }
+
+    private void showTab(View target) {
+        contentLauncher.setVisibility(View.GONE);
+        contentPerf.setVisibility(View.GONE);
+        contentCtrl.setVisibility(View.GONE);
+        contentSys.setVisibility(View.GONE);
+        contentInfo.setVisibility(View.GONE);
+        contentLog.setVisibility(View.GONE);
+        target.setVisibility(View.VISIBLE);
+        currentContent = target;
+        // GitHub logo hanya di tab Launcher.
+        githubFooter.setVisibility(target == contentLauncher ? View.VISIBLE : View.GONE);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (webView != null) {
-            String dir = assetDirForIni();
-            if (dir != null && !dir.trim().isEmpty()) {
-                webView.evaluateJavascript("updatePath('" + escapeJs(dir) + "')", null);
-            }
-        }
+        updateStartGate();
     }
 
     // ------------------------------------------------------------------
-    // Asset folder picker (Storage Access Framework)
+    // Asset folder picker
     // ------------------------------------------------------------------
-    void openFolderPicker() {
+    private void openFolderPicker() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                  | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -74,7 +159,6 @@ public class MainActivity extends Activity {
         Uri uri = data.getData();
         if (uri == null) return;
 
-        // Persist read access so the choice survives reboots.
         try {
             getContentResolver().takePersistableUriPermission(
                     uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -82,10 +166,9 @@ public class MainActivity extends Activity {
             android.util.Log.e("Launcher", "persistable uri permission denied", e);
         }
 
-        // Konversi SAF URI (content://) menjadi path file asli.
         String path = derivePrimaryPath(uri);
         if (path == null || path.trim().isEmpty()) {
-            Toast.makeText(this, "Folder tidak bisa dipetakan ke path file. Pilih folder di storage internal (mis. /storage/emulated/0/...).", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Folder tidak bisa dipetakan ke path file. Pilih folder di storage internal.", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -93,23 +176,24 @@ public class MainActivity extends Activity {
         p.edit().putString("asset_uri", uri.toString()).apply();
         p.edit().putString("asset_dir", path).apply();
 
-        // Kirim path absolut ke JavaScript.
-        if (webView != null) {
-            webView.evaluateJavascript("updatePath('" + escapeJs(path) + "')", null);
-        }
+        tvAssetStatus.setText("Folder aset: " + path);
         writeSettings();
+        updateStartGate();
     }
 
     /**
-     * Best-effort mapping of a SAF tree URI ("primary:Download/uncharted") to a
-     * real filesystem path ("/storage/emulated/0/Download/uncharted").
+     * Mapping SAF tree URI -> path absolut, pakai DocumentsContract.getTreeDocumentId.
      */
     private static String derivePrimaryPath(Uri uri) {
-        String docId;
+        String docId = null;
         try {
-            docId = DocumentsContract.getDocumentId(uri);
-        } catch (IllegalArgumentException e) {
-            return null;
+            docId = DocumentsContract.getTreeDocumentId(uri);
+        } catch (Exception e) {
+            try {
+                docId = DocumentsContract.getDocumentId(uri);
+            } catch (Exception e2) {
+                return null;
+            }
         }
         if (docId == null) return null;
         int i = docId.indexOf(':');
@@ -139,22 +223,54 @@ public class MainActivity extends Activity {
         return uri != null ? uri : "";
     }
 
+    private void updateStartGate() {
+        boolean ok = assetSelected();
+        btnStart.setEnabled(ok);
+        btnStart.setAlpha(ok ? 1.0f : 0.4f);
+        if (ok) {
+            String dir = assetDirForIni();
+            tvAssetStatus.setText("Folder aset: " + (dir.isEmpty() ? assetUriForIni() : dir));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Settings
+    // ------------------------------------------------------------------
+    private File settingsFile() {
+        return new File(getFilesDir(), "settings.ini");
+    }
+
+    private File logFile() {
+        return new File(getFilesDir(), "recomp.log");
+    }
+
+    private void readSettings() {
+        android.content.SharedPreferences p =
+                getSharedPreferences("launcher", MODE_PRIVATE);
+        int fps = p.getInt("fps", 30);
+        int fpsId = fps == 60 ? R.id.fps60 : fps == 0 ? R.id.fpsUnlimited : R.id.fps30;
+        rgFps.check(fpsId);
+        spTouchPreset.setSelection(p.getInt("touch_preset", 0));
+        sbSensitivity.setProgress(p.getInt("sensitivity", 50));
+        swShowFps.setChecked(p.getBoolean("show_fps", false));
+        swVSync.setChecked(p.getBoolean("vsync", true));
+        String dir = p.getString("asset_dir", "");
+        String uri = p.getString("asset_uri", "");
+        if ((dir != null && !dir.isEmpty()) || (uri != null && !uri.isEmpty())) {
+            tvAssetStatus.setText("Folder aset: " + (dir == null || dir.isEmpty() ? uri : dir));
+        }
+    }
+
     private void writeSettings() {
-        int fps = 60;
-        int preset = 0;
-        int sensitivity = 50;
-        boolean showFps = false;
-        boolean vsync = true;
+        int checked = rgFps.getCheckedRadioButtonId();
+        int fps = checked == R.id.fps60 ? 60 : checked == R.id.fpsUnlimited ? 0 : 30;
+        int preset = spTouchPreset.getSelectedItemPosition();
+        int sensitivity = sbSensitivity.getProgress();
+        boolean showFps = swShowFps.isChecked();
+        boolean vsync = swVSync.isChecked();
 
         android.content.SharedPreferences p =
                 getSharedPreferences("launcher", MODE_PRIVATE);
-        // Preserve previous numeric settings if present.
-        fps = p.getInt("fps", 60);
-        preset = p.getInt("touch_preset", 0);
-        sensitivity = p.getInt("sensitivity", 50);
-        showFps = p.getBoolean("show_fps", false);
-        vsync = p.getBoolean("vsync", true);
-
         p.edit()
             .putInt("fps", fps)
             .putInt("touch_preset", preset)
@@ -171,7 +287,7 @@ public class MainActivity extends Activity {
                 + "asset_dir=" + assetDirForIni() + "\n"
                 + "asset_uri=" + assetUriForIni() + "\n";
         try {
-            java.io.FileOutputStream out = new java.io.FileOutputStream(new File(getFilesDir(), "settings.ini"));
+            java.io.FileOutputStream out = new java.io.FileOutputStream(settingsFile());
             out.write(ini.getBytes(StandardCharsets.UTF_8));
             out.close();
         } catch (java.io.IOException e) {
@@ -179,58 +295,30 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static String escapeJs(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("'", "\\'");
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
+    private void showLogDialog() {
+        String text;
+        File f = logFile();
+        if (!f.exists()) {
+            text = "recomp.log belum ada.\n\nJalankan game minimal sekali.";
         } else {
-            super.onBackPressed();
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // JavaScript bridge
-    // ------------------------------------------------------------------
-    public class WebAppInterface {
-        private final MainActivity activity;
-
-        public WebAppInterface(MainActivity activity) {
-            this.activity = activity;
-        }
-
-        @JavascriptInterface
-        public void pickFolder() {
-            activity.runOnUiThread(() -> activity.openFolderPicker());
-        }
-
-        @JavascriptInterface
-        public void startGame() {
-            activity.runOnUiThread(() -> {
-                if (!activity.assetSelected()) {
-                    Toast.makeText(activity, "Pilih folder aset game dulu", Toast.LENGTH_SHORT).show();
-                    return;
+            try {
+                byte[] buf = new byte[(int) Math.min(f.length(), 64 * 1024)];
+                FileInputStream in = new FileInputStream(f);
+                int total = 0, n;
+                while (total < buf.length && (n = in.read(buf, total, buf.length - total)) > 0) {
+                    total += n;
                 }
-                activity.writeSettings();
-                Intent i = new Intent(activity, NativeActivity.class);
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                activity.startActivity(i);
-            });
-        }
-
-        @JavascriptInterface
-        public void updatePath(String path) {
-            // Dipanggil dari JS jika diperlukan; simpan path ke SharedPreferences.
-            if (path == null) return;
-            android.content.SharedPreferences p = activity.getSharedPreferences("launcher", MODE_PRIVATE);
-            p.edit().putString("asset_dir", path).apply();
-            if (activity.webView != null) {
-                activity.webView.evaluateJavascript("updatePath('" + escapeJs(path) + "')", null);
+                in.close();
+                text = new String(buf, 0, total, StandardCharsets.UTF_8);
+            } catch (java.io.IOException e) {
+                text = "Gagal membaca log: " + e.getMessage();
             }
         }
+        tvLog.setText(text);
+        showTab(contentLog);
+    }
+
+    private void refreshLog() {
+        showLogDialog();
     }
 }

@@ -209,7 +209,7 @@ void tab_log() {
 }
 
 void tab_info() {
-    ImGui::TextUnformatted("Uncharted: Golden Abyss — Unofficial Port");
+    ImGui::TextUnformatted("Uncharted: Golden Abyss — Port");
     ImGui::Separator();
     ImGui::BulletText("Title ID    : PCSA00029");
     ImGui::BulletText("Content ID  : UP9000-PCSA00029_00-0000000000000000");

@@ -10,7 +10,7 @@
         android:orientation="vertical"
         android:padding="6dp">
 
-        <!-- Title: tengah atas -->
+        <!-- Judul atas -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -18,196 +18,160 @@
             android:text="Uncharted: Golden Abyss"
             android:textColor="@color/gold"
             android:textStyle="bold"
-            android:textSize="18sp"
-            android:layout_marginTop="2dp"
+            android:textSize="16sp"
             android:layout_marginBottom="4dp" />
 
-        <!-- Pilih folder aset -->
-        <Button
-            android:id="@+id/btnPickAssets"
-            android:layout_width="match_parent"
-            android:layout_height="34dp"
-            android:text="Pilih Folder Aset Game"
-            android:textSize="12sp"
-            android:textColor="@color/text"
-            android:backgroundTint="@color/panel_light"
-            android:stateListAnimator="@null" />
-        <TextView
-            android:id="@+id/tvAssetStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="Folder aset belum dipilih"
-            android:textColor="@color/text_dim"
-            android:textSize="10sp" />
-
-        <!-- Mulai + Log -->
+        <!-- Tab bar -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:layout_height="30dp"
+            android:orientation="horizontal">
+            <Button android:id="@+id/tabLauncher" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Launcher" android:textSize="9sp" android:padding="0dp" android:backgroundTint="@color/panel_light" android:textColor="@color/text" android:stateListAnimator="@null" />
+            <Button android:id="@+id/tabPerf" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Perf" android:textSize="9sp" android:padding="0dp" android:backgroundTint="@color/panel_light" android:textColor="@color/text" android:stateListAnimator="@null" />
+            <Button android:id="@+id/tabCtrl" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Ctrl" android:textSize="9sp" android:padding="0dp" android:backgroundTint="@color/panel_light" android:textColor="@color/text" android:stateListAnimator="@null" />
+            <Button android:id="@+id/tabSys" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="System" android:textSize="9sp" android:padding="0dp" android:backgroundTint="@color/panel_light" android:textColor="@color/text" android:stateListAnimator="@null" />
+            <Button android:id="@+id/tabInfo" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Info" android:textSize="9sp" android:padding="0dp" android:backgroundTint="@color/panel_light" android:textColor="@color/text" android:stateListAnimator="@null" />
+            <Button android:id="@+id/tabLog" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Log" android:textSize="9sp" android:padding="0dp" android:backgroundTint="@color/panel_light" android:textColor="@color/text" android:stateListAnimator="@null" />
+        </LinearLayout>
+
+        <!-- Content area -->
+        <FrameLayout
+            android:id="@+id/contentArea"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:layout_marginTop="4dp">
-            <Button
-                android:id="@+id/btnStart"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="2"
-                android:text="@string/start_game"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:textColor="@color/ink"
-                android:backgroundTint="@color/gold"
-                android:stateListAnimator="@null" />
-            <Button
-                android:id="@+id/btnLog"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:text="@string/read_log"
-                android:textSize="11sp"
-                android:textColor="@color/text"
-                android:backgroundTint="@color/panel_light"
-                android:stateListAnimator="@null" />
-        </LinearLayout>
 
-        <!-- Performance -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Performance"
-            android:textColor="@color/gold"
-            android:textStyle="bold"
-            android:textSize="12sp" />
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="2dp"
-            android:background="@color/panel"
-            android:padding="6dp">
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:text="FPS"
-                android:textSize="11sp"
-                android:textColor="@color/text" />
-            <RadioGroup
-                android:id="@+id/rgFps"
-                android:orientation="horizontal"
-                android:layout_marginStart="8dp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content">
-                <RadioButton
-                    android:id="@+id/fps30"
-                    android:text="30"
-                    android:textSize="11sp"
+            <!-- Launcher tab -->
+            <LinearLayout
+                android:id="@+id/contentLauncher"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center">
+                <Button
+                    android:id="@+id/btnPickAssets"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="Pilih Folder Aset Game"
+                    android:textSize="13sp"
                     android:textColor="@color/text"
-                    android:checked="true" />
-                <RadioButton
-                    android:id="@+id/fps60"
-                    android:text="60"
-                    android:textSize="11sp"
-                    android:textColor="@color/text" />
-                <RadioButton
-                    android:id="@+id/fpsUnlimited"
-                    android:text="∞"
-                    android:textSize="11sp"
-                    android:textColor="@color/text" />
-            </RadioGroup>
-        </LinearLayout>
+                    android:backgroundTint="@color/panel_light"
+                    android:stateListAnimator="@null" />
+                <TextView
+                    android:id="@+id/tvAssetStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Folder aset belum dipilih"
+                    android:textColor="@color/text_dim"
+                    android:textSize="10sp"
+                    android:gravity="center" />
+                <Button
+                    android:id="@+id/btnStart"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/start_game"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/ink"
+                    android:backgroundTint="@color/gold"
+                    android:stateListAnimator="@null" />
+            </LinearLayout>
 
-        <!-- Controls -->
+            <!-- Performance tab -->
+            <LinearLayout
+                android:id="@+id/contentPerf"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Performance" android:textColor="@color/gold" android:textStyle="bold" android:textSize="12sp" />
+                <RadioGroup android:id="@+id/rgFps" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp">
+                    <RadioButton android:id="@+id/fps30" android:text="30" android:textSize="11sp" android:textColor="@color/text" />
+                    <RadioButton android:id="@+id/fps60" android:text="60" android:textSize="11sp" android:textColor="@color/text" android:checked="true" />
+                    <RadioButton android:id="@+id/fpsUnlimited" android:text="∞" android:textSize="11sp" android:textColor="@color/text" />
+                </RadioGroup>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Resolution Scale" android:textSize="11sp" android:textColor="@color/text" />
+                <SeekBar android:id="@+id/sbSensitivity" android:layout_width="match_parent" android:layout_height="24dp" android:max="100" android:progress="50" android:progressTint="@color/gold" />
+            </LinearLayout>
+
+            <!-- Controls tab -->
+            <LinearLayout
+                android:id="@+id/contentCtrl"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Controls" android:textColor="@color/gold" android:textStyle="bold" android:textSize="12sp" />
+                <Spinner android:id="@+id/spTouchPreset" android:layout_width="match_parent" android:layout_height="32dp" android:layout_marginTop="4dp" android:backgroundTint="@color/panel" />
+                <Switch android:id="@+id/swShowFps" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Tampilkan FPS" android:textSize="11sp" android:textColor="@color/text" />
+            </LinearLayout>
+
+            <!-- System tab -->
+            <LinearLayout
+                android:id="@+id/contentSys"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="System" android:textColor="@color/gold" android:textStyle="bold" android:textSize="12sp" />
+                <Switch android:id="@+id/swVSync" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="VSync" android:textSize="11sp" android:textColor="@color/text" android:checked="true" />
+                <Button android:id="@+id/btnLog" android:layout_width="match_parent" android:layout_height="36dp" android:layout_marginTop="8dp" android:text="@string/read_log" android:textSize="12sp" android:textColor="@color/text" android:backgroundTint="@color/panel_light" android:stateListAnimator="@null" />
+            </LinearLayout>
+
+            <!-- Info tab -->
+            <LinearLayout
+                android:id="@+id/contentInfo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Uncharted: Golden Abyss" android:textColor="@color/gold" android:textStyle="bold" android:textSize="13sp" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Title ID: PCSA00029" android:textSize="10sp" android:textColor="@color/text_dim" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Application: com.uncharted.golden.abyss" android:textSize="10sp" android:textColor="@color/text_dim" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="@string/legal_short" android:textSize="9sp" android:textColor="@color/text_dim" />
+            </LinearLayout>
+
+            <!-- Log tab -->
+            <LinearLayout
+                android:id="@+id/contentLog"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="recomp.log" android:textColor="@color/gold" android:textStyle="bold" android:textSize="12sp" />
+                <TextView android:id="@+id/tvLog" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginTop="4dp" android:textSize="9sp" android:textColor="@color/text" android:fontFamily="monospace" android:scrollbars="vertical" />
+            </LinearLayout>
+        </FrameLayout>
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Controls"
-            android:textColor="@color/gold"
-            android:textStyle="bold"
-            android:textSize="12sp" />
-        <Spinner
-            android:id="@+id/spTouchPreset"
-            android:layout_width="match_parent"
-            android:layout_height="32dp"
             android:layout_marginTop="2dp"
-            android:backgroundTint="@color/panel" />
-        <SeekBar
-            android:id="@+id/sbSensitivity"
-            android:layout_width="match_parent"
-            android:layout_height="24dp"
-            android:layout_marginTop="2dp"
-            android:max="100"
-            android:progress="50"
-            android:progressTint="@color/gold" />
-
-        <!-- System -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="System"
-            android:textColor="@color/gold"
-            android:textStyle="bold"
-            android:textSize="12sp" />
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="2dp"
-            android:background="@color/panel"
-            android:padding="4dp">
-            <Switch
-                android:id="@+id/swShowFps"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="FPS Overlay"
-                android:textSize="11sp"
-                android:textColor="@color/text" />
-        </LinearLayout>
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="2dp"
-            android:background="@color/panel"
-            android:padding="4dp">
-            <Switch
-                android:id="@+id/swVSync"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="VSync"
-                android:textSize="11sp"
-                android:textColor="@color/text"
-                android:checked="true" />
-        </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
             android:text="@string/legal_short"
             android:textColor="@color/text_dim"
             android:textSize="8sp"
             android:gravity="center" />
     </LinearLayout>
 
-    <!-- GitHub logo: pojok kanan bawah -->
+    <!-- GitHub logo: pojok kanan bawah, hanya tab Launcher -->
     <LinearLayout
+        android:id="@+id/githubFooter"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="4dp">
+        android:padding="4dp"
+        android:visibility="visible">
         <ImageView
             android:id="@+id/btnGithub"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:src="@drawable/ic_github"
-            android:contentDescription="GitHub — buka repositori"
+            android:contentDescription="GitHub"
             android:clickable="true"
             android:focusable="true" />
         <TextView

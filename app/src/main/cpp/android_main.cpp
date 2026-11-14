@@ -316,7 +316,7 @@ void android_main(android_app* app) {
     join_paths(state.log_path, sizeof(state.log_path), base, "recomp.log");
     join_paths(state.ini_path, sizeof(state.ini_path), base, "settings.ini");
     ui::overlay_init(state.log_path, state.ini_path);
-    ui::overlay_logf("=== Uncharted: Golden Abyss — Unofficial Port (scaffold) ===");
+    ui::overlay_logf("=== Uncharted: Golden Abyss — Port (scaffold) ===");
     ui::overlay_logf("Title ID: PCSA00029 | Content ID: UP9000-PCSA00029_00-0000000000000000");
     ui::overlay_logf("ini: %s", state.ini_path);
 
