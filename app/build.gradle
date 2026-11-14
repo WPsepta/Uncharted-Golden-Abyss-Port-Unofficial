@@ -12,7 +12,7 @@ android {
         minSdk 24
         targetSdk 34
         versionCode 1
-        versionName '0.1.0-unofficial'
+        versionName '1.0.0'
 
         // Vita is ARMv7; the recompiled code is plain C++, run it on arm64-v8a.
         ndk {
