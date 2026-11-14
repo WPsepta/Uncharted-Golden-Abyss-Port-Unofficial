@@ -10,6 +10,9 @@
 extracted/
 assets/
 PCSA00029/
+# Android launcher assets (index.html) — BUKAN konten game
+!/app/src/main/assets/
+!/app/src/main/assets/**
 uncharted_decrypted*
 *.self
 *.elf

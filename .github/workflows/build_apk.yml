@@ -36,7 +36,7 @@ jobs:
       - name: Reject recompiled / decrypted game files in repo
         run: |
           set -euo pipefail
-          bad=$(git ls-files | grep -E '(^|/)(gen/|extracted/|assets/|PCSA00029/|recomp(\.cpp|\.h)$|uncharted_decrypted|source_code\.zip$|\.self$|\.elf$|eboot\.bin$)' || true)
+          bad=$(git ls-files | grep -E '(^|/)(gen/|extracted/|assets/|PCSA00029/|recomp(\.cpp|\.h)$|uncharted_decrypted|source_code\.zip$|\.self$|\.elf$|eboot\.bin$)' | grep -v '^app/src/main/assets/' || true)
           if [ -n "$bad" ]; then
             echo "::error::File game tidak boleh masuk repo:"
             printf '%s\n' "$bad"
