@@ -91,7 +91,7 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
             curl -fSL -o /tmp/ct.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            mkdir -p "$ANDROID_SDK_ROOT"
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
             unzip -q -o /tmp/ct.zip -d /tmp/ct
             mv /tmp/ct/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           fi
