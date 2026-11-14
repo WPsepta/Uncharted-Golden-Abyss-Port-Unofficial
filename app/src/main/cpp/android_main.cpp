@@ -41,6 +41,7 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define EGLLOG(...) __android_log_print(ANDROID_LOG_DEBUG, "EGL_DEBUG", __VA_ARGS__)
+#define RENDERLOG(...) __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", __VA_ARGS__)
 
 static const char* egl_err_str(EGLint e) {
     switch (e) {
@@ -64,6 +65,8 @@ static const char* egl_err_str(EGLint e) {
 
 // Runtime toggle: Mali/Unisoc sering bermasalah dengan ES3.0.
 static bool force_es2 = true;
+// Toggle smoke test (red frame). Set true to verify EGL pipeline.
+static bool run_smoke_test = true;
 
 // Read one "key=value" line from settings.ini (last one wins).
 static std::string read_ini_value(const char* path, const char* key) {
@@ -349,9 +352,10 @@ void on_cmd(android_app* app, int32_t cmd) {
 void render_loop(AppState* s) {
     using clock = std::chrono::steady_clock;
     auto last = clock::now();
+    int frameCount = 0;
 
     while (s->running.load()) {
-        auto now = clock::now();
+        auto now = clock::steady_clock::now();
         float dt = std::chrono::duration<float>(now - last).count();
         last = now;
 
@@ -359,15 +363,39 @@ void render_loop(AppState* s) {
         const int fps = ui::overlay_settings().fps;
         if (fps > 0) {
             const auto target = std::chrono::duration<float>(1.0f / fps);
-            const auto elapsed = now - last;  // ~0, sisipkan tidur di bawah
-            (void)elapsed;
             if (dt < target.count()) {
                 std::this_thread::sleep_for(std::chrono::duration<float>(target.count() - dt));
             }
         }
 
-        glClearColor(0.023f, 0.031f, 0.041f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        // Rendering debugging: shader compile status (per-frame query, light)
+        GLint prog = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+        RENDERLOG("Render: GL_CURRENT_PROGRAM = %d", prog);
+
+        // Rendering debugging: texture status (query bound texture, no creation)
+        GLint activeTex = 0;
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTex);
+        RENDERLOG("Render: active texture unit = %x", activeTex);
+        // Query if a texture is currently bound - use 0 as default
+        GLboolean hasTex = glIsTexture(0) ? GL_TRUE : GL_FALSE; // glIsTexture(0) returns GL_FALSE
+        RENDERLOG("Render: glIsTexture(0) = %d (0 = tidak ada bound texture)", hasTex);
+
+        // Smoke test: warna merah hanya jika toggle aktif (sebelum clear hitam normal)
+        if (run_smoke_test) {
+            glViewport(0, 0, s->window_width, s->window_height);
+            glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            eglSwapBuffers(s->display, s->surface);
+            EGLLOG("SMOKE TEST: red frame swapped, glGetError=0x%x", glGetError());
+            ui::overlay_logf("SMOKE TEST: red frame swapped, glGetError=0x%x", glGetError());
+            // After smoke test, reset to normal clear color
+            glClearColor(0.023f, 0.031f, 0.041f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        } else {
+            glClearColor(0.023f, 0.031f, 0.041f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        }
 
         if (s->imgui_ready) {
             ImGuiIO& io = ImGui::GetIO();
@@ -380,6 +408,21 @@ void render_loop(AppState* s) {
             ui::overlay_render();
             ImGui::Render();
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        }
+
+        // GL error check after ImGui render
+        GLenum err = glGetError();
+        if (err != GL_NO_ERROR) {
+            RENDERLOG("GL error after render: 0x%x", err);
+        }
+
+        // Draw call counting (placeholder: ImGui draw calls)
+        int drawCount = ImGui::GetDrawData()->cmd_list_count;
+        RENDERLOG("Render: draw calls this frame = %d", drawCount);
+
+        frameCount++;
+        if (frameCount % 60 == 0) {
+            RENDERLOG("Frame rendered: %d", frameCount);
         }
 
         eglSwapBuffers(s->display, s->surface);

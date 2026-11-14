@@ -41,6 +41,18 @@ public class MainActivity extends Activity {
     private Switch swShowFps;
     private Switch swVSync;
 
+    // WebView for UI.html launcher
+    private WebView webView;
+
+    // Native Bridge interface
+    public interface NativeBridge {
+        void pickFolder();
+        void startGame();
+        void updatePath(String path);
+        void showToast(String message);
+    }
+    private NativeBridge nativeBridge;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -48,12 +60,51 @@ public class MainActivity extends Activity {
 
         ensureStoragePermission();
 
+        // Initialize Native Bridge
+        nativeBridge = new NativeBridge() {
+            @Override
+            public void pickFolder() {
+                openFolderPicker();
+            }
+
+            @Override
+            public void startGame() {
+                if (!assetSelected()) {
+                    openFolderPicker();
+                    return;
+                }
+                writeSettings();
+                Intent i = new Intent(MainActivity.this, NativeActivity.class);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            }
+
+            @Override
+            public void updatePath(String path) {
+                tvAssetStatus.setText("Folder aset: " + path);
+            }
+
+            @Override
+            public void showToast(String message) {
+                Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
+            }
+        };
+
         findViewById(R.id.btnGithub).setOnClickListener(v -> {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)));
         });
 
         tvAssetStatus = findViewById(R.id.tvAssetStatus);
         btnStart = findViewById(R.id.btnStart);
+
+        // Initialize WebView with UI.html
+        webView = findViewById(R.id.webView);
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setAllowFileAccess(true);
+        webView.getSettings().setDomStorageEnabled(true);
+        webView.addJavascriptInterface(new JavascriptBridge(nativeBridge), "NativeBridge");
+        String htmlPath = "file:///android_asset/UI.html";
+        webView.loadUrl(htmlPath);
 
         findViewById(R.id.btnPickAssets).setOnClickListener(v -> openFolderPicker());
         btnStart.setOnClickListener(v -> {
@@ -291,5 +342,21 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         updateStartGate();
+    }
+
+    // ------------------------------------------------------------------
+    // JavascriptBridge — Native Bridge dari UI.html ke Java
+    // ------------------------------------------------------------------
+    private static class JavascriptBridge {
+        private final NativeBridge bridge;
+        JavascriptBridge(NativeBridge b) { this.bridge = b; }
+        @JavascriptInterface
+        public void pickFolder() { bridge.pickFolder(); }
+        @JavascriptInterface
+        public void startGame() { bridge.startGame(); }
+        @JavascriptInterface
+        public void updatePath(String path) { bridge.updatePath(path); }
+        @JavascriptInterface
+        public void showToast(String message) { bridge.showToast(message); }
     }
 }
