@@ -6,6 +6,7 @@ import android.app.NativeActivity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.DocumentFile;
 import android.provider.DocumentsContract;
 import android.text.InputType;
 import android.view.View;
@@ -52,7 +53,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // GitHub WPsepta (top-left) -> open repository
+        // GitHub WPsepta (pojok kanan bawah) -> open repository
         findViewById(R.id.btnGithub).setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL));
             startActivity(i);
@@ -113,6 +114,13 @@ public class MainActivity extends Activity {
         Uri uri = data.getData();
         if (uri == null) return;
 
+        // Validasi folder dengan DocumentFile (pastikan bisa dibaca).
+        DocumentFile tree = DocumentFile.fromTreeUri(this, uri);
+        if (tree == null || !tree.exists() || !tree.isDirectory()) {
+            Toast.makeText(this, "Folder tidak valid / tidak terbaca", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         // Persist read access so the choice survives reboots.
         try {
             getContentResolver().takePersistableUriPermission(
@@ -121,13 +129,18 @@ public class MainActivity extends Activity {
             android.util.Log.e("Launcher", "persistable uri permission denied", e);
         }
 
+        // Konversi SAF URI (content://) menjadi path file asli.
+        String path = derivePrimaryPath(uri);
+        if (path == null || path.trim().isEmpty()) {
+            Toast.makeText(this, "Folder tidak bisa dipetakan ke path file. Pilih folder di storage internal (mis. /storage/emulated/0/...).", Toast.LENGTH_LONG).show();
+            return;
+        }
+
         android.content.SharedPreferences p = getSharedPreferences("launcher", MODE_PRIVATE);
         p.edit().putString("asset_uri", uri.toString()).apply();
+        p.edit().putString("asset_dir", path).apply();
 
-        String path = derivePrimaryPath(uri);
-        p.edit().putString("asset_dir", path != null ? path : "").apply();
-
-        tvAssetStatus.setText("Folder aset: " + (path != null ? path : uri));
+        tvAssetStatus.setText("Folder aset: " + path);
         writeSettings();          // keep settings.ini in sync immediately
         updateStartGate();
     }
@@ -156,9 +169,8 @@ public class MainActivity extends Activity {
 
     private boolean assetSelected() {
         android.content.SharedPreferences p = getSharedPreferences("launcher", MODE_PRIVATE);
-        String uri = p.getString("asset_uri", "");
         String dir = p.getString("asset_dir", "");
-        return (uri != null && !uri.isEmpty()) || (dir != null && !dir.isEmpty());
+        return dir != null && !dir.trim().isEmpty();
     }
 
     private String assetDirForIni() {
@@ -207,7 +219,7 @@ public class MainActivity extends Activity {
         String dir = p.getString("asset_dir", "");
         String uri = p.getString("asset_uri", "");
         if ((dir != null && !dir.isEmpty()) || (uri != null && !uri.isEmpty())) {
-            tvAssetStatus.setText("Folder aset: " + (dir.isEmpty() ? uri : dir));
+            tvAssetStatus.setText("Folder aset: " + (dir == null || dir.isEmpty() ? uri : dir));
         }
     }
 

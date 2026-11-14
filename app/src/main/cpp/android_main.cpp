@@ -325,8 +325,11 @@ void android_main(android_app* app) {
     ui::overlay_logf("asset_dir = %s", asset_dir.c_str());
     ui::overlay_logf("asset_uri = %s", asset_uri.c_str());
     if (asset_dir.empty()) {
-        ui::overlay_logf("WARN: asset_dir belum diatur — pilih folder aset di launcher, "
-                         "lalu tulis ulang settings.ini (launcher) dan coba lagi.");
+        ui::overlay_logf("ERROR: asset_dir kosong — pilih folder aset di launcher, "
+                         "pastikan folder dipetakan ke path file (mis. /storage/emulated/0/...), "
+                         "lalu coba lagi.");
+        ANativeActivity_finish(app->activity);
+        return;
     } else {
         const std::string dir = asset_dir;
         std::thread([dir] {

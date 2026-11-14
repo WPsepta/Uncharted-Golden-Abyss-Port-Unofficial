@@ -1,161 +1,222 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/ink"
-    android:fillViewport="true">
+    android:background="@color/ink">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="6dp">
 
-        <!-- Top bar: GitHub logo + account -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-            <ImageView
-                android:id="@+id/btnGithub"
-                android:layout_width="40dp" android:layout_height="40dp"
-                android:src="@drawable/ic_github"
-                android:contentDescription="GitHub — buka repositori"
-                android:layout_marginEnd="8dp"
-                android:clickable="true"
-                android:focusable="true" />
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="WPsepta"
-                android:textColor="@color/text"
-                android:textStyle="bold"
-                android:textSize="16sp" />
-            <TextView
-                android:layout_width="0dp" android:layout_height="wrap_content"
-                android:layout_weight="1" />
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="v0.1.0"
-                android:textColor="@color/text_dim"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <!-- Title block -->
+        <!-- Title: tengah atas -->
         <TextView
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="Uncharted: Golden Abyss"
             android:textColor="@color/gold"
             android:textStyle="bold"
-            android:textSize="26sp" />
-        <TextView
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/subtitle"
-            android:textColor="@color/text_dim"
-            android:textSize="13sp" />
+            android:textSize="18sp"
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="4dp" />
 
-        <!-- Asset folder picker (pilih folder aset game milik sendiri) -->
+        <!-- Pilih folder aset -->
         <Button
             android:id="@+id/btnPickAssets"
-            android:layout_width="match_parent" android:layout_height="52dp"
-            android:layout_marginTop="28dp"
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
             android:text="Pilih Folder Aset Game"
+            android:textSize="12sp"
             android:textColor="@color/text"
             android:backgroundTint="@color/panel_light"
             android:stateListAnimator="@null" />
         <TextView
             android:id="@+id/tvAssetStatus"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:text="Folder aset belum dipilih"
             android:textColor="@color/text_dim"
-            android:textSize="12sp" />
+            android:textSize="10sp" />
 
-        <!-- Start button -->
-        <Button
-            android:id="@+id/btnStart"
-            android:layout_width="match_parent" android:layout_height="72dp"
-            android:layout_marginTop="16dp"
-            android:text="@string/start_game"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:textColor="@color/ink"
-            android:backgroundTint="@color/gold"
-            android:stateListAnimator="@null" />
+        <!-- Mulai + Log -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+            <Button
+                android:id="@+id/btnStart"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="2"
+                android:text="@string/start_game"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/ink"
+                android:backgroundTint="@color/gold"
+                android:stateListAnimator="@null" />
+            <Button
+                android:id="@+id/btnLog"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="@string/read_log"
+                android:textSize="11sp"
+                android:textColor="@color/text"
+                android:backgroundTint="@color/panel_light"
+                android:stateListAnimator="@null" />
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/btnLog"
-            android:layout_width="match_parent" android:layout_height="52dp"
-            android:layout_marginTop="12dp"
-            android:text="@string/read_log"
-            android:textColor="@color/text"
-            android:backgroundTint="@color/panel_light"
-            android:stateListAnimator="@null" />
-
-        <!-- Settings 1: Performance -->
+        <!-- Performance -->
         <TextView
-            android:layout_marginTop="28dp"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
             android:text="Performance"
-            android:textColor="@color/gold" android:textStyle="bold" android:textSize="16sp" />
-        <LinearLayout android:orientation="horizontal"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:background="@color/panel" android:padding="12dp">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical" android:text="FPS" android:textColor="@color/text" />
-            <RadioGroup android:id="@+id/rgFps"
-                android:orientation="horizontal" android:layout_marginStart="12dp"
-                android:layout_width="wrap_content" android:layout_height="wrap_content">
-                <RadioButton android:id="@+id/fps30" android:text="30" android:textColor="@color/text" android:checked="true" />
-                <RadioButton android:id="@+id/fps60" android:text="60" android:textColor="@color/text" />
-                <RadioButton android:id="@+id/fpsUnlimited" android:text="∞" android:textColor="@color/text" />
+            android:textColor="@color/gold"
+            android:textStyle="bold"
+            android:textSize="12sp" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="2dp"
+            android:background="@color/panel"
+            android:padding="6dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:text="FPS"
+                android:textSize="11sp"
+                android:textColor="@color/text" />
+            <RadioGroup
+                android:id="@+id/rgFps"
+                android:orientation="horizontal"
+                android:layout_marginStart="8dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+                <RadioButton
+                    android:id="@+id/fps30"
+                    android:text="30"
+                    android:textSize="11sp"
+                    android:textColor="@color/text"
+                    android:checked="true" />
+                <RadioButton
+                    android:id="@+id/fps60"
+                    android:text="60"
+                    android:textSize="11sp"
+                    android:textColor="@color/text" />
+                <RadioButton
+                    android:id="@+id/fpsUnlimited"
+                    android:text="∞"
+                    android:textSize="11sp"
+                    android:textColor="@color/text" />
             </RadioGroup>
         </LinearLayout>
 
-        <!-- Settings 2: Controls -->
+        <!-- Controls -->
         <TextView
-            android:layout_marginTop="20dp"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="Controls"
-            android:textColor="@color/gold" android:textStyle="bold" android:textSize="16sp" />
-        <Spinner android:id="@+id/spTouchPreset"
-            android:layout_width="match_parent" android:layout_height="48dp"
-            android:layout_marginTop="8dp"
-            android:backgroundTint="@color/panel" />
-        <SeekBar android:id="@+id/sbSensitivity"
-            android:layout_width="match_parent" android:layout_height="48dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:max="100" android:progress="50"
+            android:text="Controls"
+            android:textColor="@color/gold"
+            android:textStyle="bold"
+            android:textSize="12sp" />
+        <Spinner
+            android:id="@+id/spTouchPreset"
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:layout_marginTop="2dp"
+            android:backgroundTint="@color/panel" />
+        <SeekBar
+            android:id="@+id/sbSensitivity"
+            android:layout_width="match_parent"
+            android:layout_height="24dp"
+            android:layout_marginTop="2dp"
+            android:max="100"
+            android:progress="50"
             android:progressTint="@color/gold" />
 
-        <!-- Settings 3: System -->
+        <!-- System -->
         <TextView
-            android:layout_marginTop="20dp"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:text="System"
-            android:textColor="@color/gold" android:textStyle="bold" android:textSize="16sp" />
-        <LinearLayout android:orientation="horizontal"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:background="@color/panel" android:padding="12dp">
-            <Switch android:id="@+id/swShowFps"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Tampilkan FPS di game" android:textColor="@color/text" />
+            android:textColor="@color/gold"
+            android:textStyle="bold"
+            android:textSize="12sp" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="2dp"
+            android:background="@color/panel"
+            android:padding="4dp">
+            <Switch
+                android:id="@+id/swShowFps"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="FPS Overlay"
+                android:textSize="11sp"
+                android:textColor="@color/text" />
         </LinearLayout>
-        <LinearLayout android:orientation="horizontal"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:background="@color/panel" android:padding="12dp">
-            <Switch android:id="@+id/swVSync"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="VSync" android:textColor="@color/text" android:checked="true" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="2dp"
+            android:background="@color/panel"
+            android:padding="4dp">
+            <Switch
+                android:id="@+id/swVSync"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="VSync"
+                android:textSize="11sp"
+                android:textColor="@color/text"
+                android:checked="true" />
         </LinearLayout>
 
-        <!-- Legal footer -->
         <TextView
-            android:layout_marginTop="24dp"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:text="@string/legal_short"
-            android:textColor="@color/text_dim" android:textSize="10sp"
+            android:textColor="@color/text_dim"
+            android:textSize="8sp"
             android:gravity="center" />
     </LinearLayout>
-</ScrollView>
+
+    <!-- GitHub logo: pojok kanan bawah -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="4dp">
+        <ImageView
+            android:id="@+id/btnGithub"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_github"
+            android:contentDescription="GitHub — buka repositori"
+            android:clickable="true"
+            android:focusable="true" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:text="WPsepta"
+            android:textColor="@color/text"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</FrameLayout>
