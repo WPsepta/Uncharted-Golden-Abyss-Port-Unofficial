@@ -70,9 +70,14 @@ set(UNCHARTED_SOURCES
 
 add_library(uncharted SHARED ${UNCHARTED_SOURCES})
 target_include_directories(uncharted PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# NativeActivity mencari ANativeActivity_onCreate via dlsym; tanpa -u linker
+# membuangnya (static lib) -> force close. Paksa simbol ini masuk & diekspor.
+target_link_options(uncharted PRIVATE -Wl,-u,ANativeActivity_onCreate)
 target_link_libraries(uncharted
     PRIVATE
+    -Wl,--whole-archive
     app-glue
+    -Wl,--no-whole-archive
     imgui
     android
     log
@@ -88,6 +93,12 @@ if(RC_WITH_GAME_CODE)
         ${RC_GAME_PARTS}
     )
     target_include_directories(uncharted_game PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(uncharted PRIVATE uncharted_game)
+    # --whole-archive: tanpa ini linker membuang seluruh kode game (static lib)
+    # karena tidak ada simbol yang direferensikan langsung -> .so cuma shell.
+    target_link_libraries(uncharted PRIVATE
+        -Wl,--whole-archive
+        uncharted_game
+        -Wl,--no-whole-archive
+    )
     target_compile_definitions(uncharted PRIVATE RC_WITH_GAME_CODE=1)
 endif()
