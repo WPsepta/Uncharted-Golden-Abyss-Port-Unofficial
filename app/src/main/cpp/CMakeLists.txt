@@ -71,6 +71,7 @@ set(UNCHARTED_SOURCES
 add_library(uncharted SHARED ${UNCHARTED_SOURCES})
 target_include_directories(uncharted PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(uncharted
+    PRIVATE
     app-glue
     imgui
     android
