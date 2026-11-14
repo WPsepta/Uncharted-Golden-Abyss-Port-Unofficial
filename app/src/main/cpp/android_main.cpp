@@ -353,11 +353,18 @@ void render_loop(AppState* s) {
     using clock = std::chrono::steady_clock;
     auto last = clock::now();
     int frameCount = 0;
+    bool firstFrame = true;
 
     while (s->running.load()) {
         auto now = clock::steady_clock::now();
         float dt = std::chrono::duration<float>(now - last).count();
         last = now;
+
+        // Log: Entry render loop pertama
+        if (firstFrame) {
+            __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Frame 1 started");
+            firstFrame = false;
+        }
 
         // Frame limiter dari settings.ini (0 = unlimited)
         const int fps = ui::overlay_settings().fps;
@@ -380,6 +387,16 @@ void render_loop(AppState* s) {
         // Query if a texture is currently bound - use 0 as default
         GLboolean hasTex = glIsTexture(0) ? GL_TRUE : GL_FALSE; // glIsTexture(0) returns GL_FALSE
         RENDERLOG("Render: glIsTexture(0) = %d (0 = tidak ada bound texture)", hasTex);
+
+        // Validasi texture ID: mencegah crash jika texture gagal dimuat (btex=0)
+        // Ambil texture ID yang sedang bound (atau 0 jika tidak ada)
+        GLint boundTex = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTex);
+        if (boundTex == 0) {
+            __android_log_print(ANDROID_LOG_WARN, "RENDER_DEBUG", "No texture bound di frame %d", frameCount);
+        } else {
+            __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Texture bound: %d di frame %d", boundTex, frameCount);
+        }
 
         // Smoke test: warna merah hanya jika toggle aktif (sebelum clear hitam normal)
         if (run_smoke_test) {

@@ -274,7 +274,7 @@ void overlay_logf(const char* fmt, ...) {
         va_start(args, fmt);
         vfprintf(f, fmt, args);
         fprintf(f, "\n");
-        va_end(args);
+        fflush(f);  // FLUSH: pastikan log tertulis sebelum close
         fclose(f);
     }
 }
