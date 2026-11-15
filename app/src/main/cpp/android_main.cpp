@@ -393,6 +393,8 @@ void on_cmd(android_app* app, int32_t cmd) {
             ui::overlay_logf("game window init: %dx%d", s->window_width, s->window_height);
 #if RC_WITH_GAME_CODE
             s->worker = std::thread([s] {
+                __android_log_print(ANDROID_LOG_DEBUG, "ENGINE_DEBUG", "Engine status: boot SENGAJA dimatikan (#if 0 rc::rc_boot). Game code/state machine TIDAK berjalan — video/cutscene tidak pernah dieksekusi; draw call engine tidak akan pernah muncul di build ini.");
+                ui::overlay_logf("ENGINE_DEBUG: Engine status: boot SENGAJA dimatikan (#if 0 rc::rc_boot). Video/cutscene tidak pernah dieksekusi; draw call engine tidak akan muncul di build ini.");
                 ui::overlay_logf("rc:: boot thread started (game code present)");
 #if 0
                 rc::rc_boot(s->cpu);  // not wired: HLE/loader still incomplete
@@ -498,8 +500,17 @@ void render_loop(AppState* s) {
         {
             GLint current_texture_id = 0;
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &current_texture_id);
-            __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Frame drawn with texture ID: %d", current_texture_id);
-            ui::overlay_logf("RENDER_DEBUG: Frame drawn with texture ID: %d", current_texture_id);
+            // Throttle: cetak hanya jika tekstur terikat ATAU setiap 60 frame (cegah spam)
+            if (current_texture_id != 0 || frameCount % 60 == 0) {
+                __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Frame drawn with texture ID: %d", current_texture_id);
+                ui::overlay_logf("RENDER_DEBUG: Frame drawn with texture ID: %d", current_texture_id);
+            }
+            // DRAW_DEBUG: draw utama di build ini adalah path ImGui (engine belum pernah memanggil GL)
+            if (s->imgui_ready && (current_texture_id != 0 || frameCount % 60 == 0)) {
+                const int lists = ImGui::GetDrawData()->CmdListsCount;
+                __android_log_print(ANDROID_LOG_DEBUG, "DRAW_DEBUG", "Engine meminta draw: CmdLists=%d, Texture ID: %d", lists, current_texture_id);
+                ui::overlay_logf("DRAW_DEBUG: Engine meminta draw: CmdLists=%d, Texture ID: %d", lists, current_texture_id);
+            }
         }
         // RENDER_DEBUG: glGetError TEPAT setelah draw call (error GPU Mali)
         {
