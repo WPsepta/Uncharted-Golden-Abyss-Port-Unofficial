@@ -170,6 +170,8 @@ static AssetCensus scan_assets(const char* root) {
     ui::overlay_logf("ASSET_DEBUG: Scan selesai: total=%llu btex=%llu png=%llu errors=%llu",
                      (unsigned long long)c.total, (unsigned long long)c.btex,
                      (unsigned long long)c.png, (unsigned long long)c.errors);
+    __android_log_print(ANDROID_LOG_ERROR, "CRASH_DEBUG", "Selesai load tekstur, bersiap masuk render loop");
+    ui::overlay_logf("CRASH_DEBUG: Selesai load tekstur, bersiap masuk render loop");
     return c;
 }
 
@@ -402,6 +404,8 @@ void render_loop(AppState* s) {
     int frameCount = 0;
     bool firstFrame = true;
 
+    __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "=== MEMASUKI RENDER LOOP UTAMA ===");
+    ui::overlay_logf("RENDER_DEBUG: === MEMASUKI RENDER LOOP UTAMA ===");
     while (s->running.load()) {
         auto now = clock::steady_clock::now();
         float dt = std::chrono::duration<float>(now - last).count();

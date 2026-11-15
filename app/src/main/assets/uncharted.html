@@ -231,11 +231,11 @@ body{display:grid;place-items:center}
     </svg>
    </button>
   </div>
-  <div id="folderStatus" style="text-align:center;font-size:12px;margin-top:8px;min-height:18px;color:#d0cfca;"></div>
   <button class="menu-btn" type="button" data-action="settings"><span class="ico">⚙</span><span class="label">Pengaturan</span></button>
   <button class="menu-btn" type="button" data-action="about"><span class="ico">ⓘ</span><span class="label">Tentang</span></button>
   <button class="menu-btn" type="button" data-action="exit"><span class="ico">⇥</span><span class="label">Keluar</span></button>
  </nav>
+ <div id="folderStatus" style="position:fixed;right:12px;bottom:12px;z-index:9;max-width:min(300px,62vw);font-size:12px;line-height:1.45;color:#d0cfca;background:rgba(0,0,0,.55);border:1px solid #ffffff22;border-radius:10px;padding:6px 12px;text-align:right;pointer-events:none;display:none;backdrop-filter:blur(3px);"></div>
  
  
 <section class="about-screen" id="aboutScreen" aria-label="Tentang aplikasi" aria-hidden="true">
@@ -351,24 +351,26 @@ window.setFolderStatus = function(info) {
  if (typeof info === "string") obj = JSON.parse(info);
  const el = document.getElementById("folderStatus");
  if (!el) return;
- const folder = obj.folder || "?";
+ const esc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+ const folder = esc(obj.folder || "?");
  const total = obj.total || 0;
  const btex = obj.btex || 0;
  const bsm = obj.bsm || 0;
  const png = obj.png || 0;
+ el.style.display = "block";
  if (btex > 0 || bsm > 0) {
    el.style.color = "#7CFC00";
-   el.textContent = "✅ Folder: " + folder + " (Bstex: " + btex + ", Bsm: " + bsm + ", PNG: " + png + ", Total: " + total + ")";
+   el.innerHTML = "✅ Folder: <b>" + folder + "</b><br>Bstex: " + btex + " · Bsm: " + bsm + " · PNG: " + png + " · Total: " + total;
  } else if (total > 0) {
    el.style.color = "#ffcc00";
-   el.textContent = "⚠️ Folder: " + folder + " (Bstex: 0, Bsm: " + bsm + ", Total: " + total + ") - Tekstur (.bstex/.png) tidak ditemukan.";
+   el.innerHTML = "⚠️ Folder: <b>" + folder + "</b><br>Bstex: 0 · Bsm: " + bsm + " · Total: " + total + "<br>Tekstur (.bstex/.png) tidak ditemukan";
  } else {
    el.style.color = "#ff4d4d";
-   el.textContent = "❌ Folder tidak valid. Pastikan memilih folder uncharted-extracted.";
+   el.innerHTML = "❌ Folder tidak valid<br>Pilih folder uncharted-extracted";
  }
  } catch(e) {
   const el = document.getElementById("folderStatus");
-  if (el) { el.style.color = "#ff4d4d"; el.textContent = "❌ Gagal membaca status folder: " + e.message; }
+  if (el) { el.style.display = "block"; el.style.color = "#ff4d4d"; el.textContent = "❌ Gagal membaca status folder"; }
  }
 };
 
