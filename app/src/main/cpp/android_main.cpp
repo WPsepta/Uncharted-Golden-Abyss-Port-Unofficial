@@ -32,6 +32,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <string>
 #include <set>
@@ -131,38 +132,64 @@ static AssetCensus scan_assets(const char* root) {
     }
     // Track unique extensions for debugging
     std::set<std::string> unique_exts;
+    // Sementara: batasi print log per-file untuk 100 tekstur pertama (hindari spam + tekanan memori)
+    constexpr uint64_t MAX_TEXTURE_LOG = 100;
     for (; it != end; it.increment(ec)) {
         if (ec) { c.errors++; ec.clear(); continue; }
-        const fs::directory_entry& e = *it;
-        if (!e.is_regular_file()) continue;
-        std::string ext = e.path().extension().string();
-        for (auto& ch : ext) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
-        c.total++;
-        // SCANNER_DEBUG: HANYA cetak jika ekstensi .bstex atau .png
-        if (ext == ".bstex" || ext == ".png") {
-            __android_log_print(ANDROID_LOG_DEBUG, "SCANNER_DEBUG", "FILE GAMBAR DITEMUKAN: %s", e.path().c_str());
-            ui::overlay_logf("SCANNER_DEBUG: FILE GAMBAR DITEMUKAN: %s", e.path().c_str());
+        try {
+            const fs::directory_entry& e = *it;
+            // Pakai overload error_code: JANGAN lempar exception (penyebab crash sebelum render loop)
+            if (!e.is_regular_file(ec)) { ec.clear(); continue; }
+            const char* path_cstr = e.path().c_str();
+            if (!path_cstr || path_cstr[0] == '\0') { c.errors++; continue; }
+            std::string ext = e.path().extension().string();
+            for (auto& ch : ext) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+            c.total++;
+            // Jangan proses file tanpa ekstensi (mis. 'temp_cin') — langsung skip setelah dihitung
+            if (ext.empty()) { c.other++; continue; }
+            // SCANNER_DEBUG: HANYA cetak jika ekstensi .bstex atau .png
+            if (ext == ".bstex" || ext == ".png") {
+                if (c.btex + c.png < MAX_TEXTURE_LOG) {
+                    __android_log_print(ANDROID_LOG_DEBUG, "SCANNER_DEBUG", "FILE GAMBAR DITEMUKAN: %s", path_cstr);
+                    ui::overlay_logf("SCANNER_DEBUG: FILE GAMBAR DITEMUKAN: %s", path_cstr);
+                }
+            }
+            unique_exts.insert(ext);
+            if      (ext == ".bstex")  { if (c.btex < MAX_TEXTURE_LOG) { __android_log_print(ANDROID_LOG_DEBUG, "LOADER_DEBUG", "Berhasil memuat tekstur: %s", path_cstr); ui::overlay_logf("LOADER_DEBUG: Berhasil memuat tekstur: %s", path_cstr); } c.btex++; }
+            else if (ext == ".bsm")   c.bsm++;
+            else if (ext == ".bsanim" || ext == ".bssceneanim") c.bsanim++;
+            else if (ext == ".xvag")  c.xvag++;
+            else if (ext == ".hkx")   c.hkx++;
+            else if (ext == ".bsp")   c.bsp++;
+            else if (ext == ".bnk")   c.bnk++;
+            else if (ext == ".bsfnt") c.bsfnt++;
+            else if (ext == ".png")   { c.png++; }
+            else if (ext == ".csv")   c.csv++;
+            else if (ext == ".dll")   c.dll++;
+            else                      { c.other++; if (c.other <= 20) __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Ext: %s -> %s", ext.c_str(), e.path().filename().c_str()); }
+        } catch (const std::exception& ex) {
+            // JANGAN pernah crash karena satu entry aneh — catat dan lanjut
+            c.errors++;
+            __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ENTRY SKIP (exception): %s", ex.what());
+            ui::overlay_logf("ASSET_DEBUG: ENTRY SKIP (exception): %s", ex.what());
+        } catch (...) {
+            c.errors++;
+            __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ENTRY SKIP (unknown exception)");
+            ui::overlay_logf("ASSET_DEBUG: ENTRY SKIP (unknown exception)");
         }
-        unique_exts.insert(ext);
-        if      (ext == ".bstex")  { c.btex++; __android_log_print(ANDROID_LOG_DEBUG, "LOADER_DEBUG", "Berhasil memuat tekstur: %s", e.path().c_str()); ui::overlay_logf("LOADER_DEBUG: Berhasil memuat tekstur: %s", e.path().c_str()); }
-        else if (ext == ".bsm")   c.bsm++;
-        else if (ext == ".bsanim" || ext == ".bssceneanim") c.bsanim++;
-        else if (ext == ".xvag")  c.xvag++;
-        else if (ext == ".hkx")   c.hkx++;
-        else if (ext == ".bsp")   c.bsp++;
-        else if (ext == ".bnk")   c.bnk++;
-        else if (ext == ".bsfnt") c.bsfnt++;
-        else if (ext == ".png")   { c.png++; __android_log_print(ANDROID_LOG_ERROR, "BTEK_DEBUG", "Mencoba buka png: %s", e.path().c_str()); ui::overlay_logf("BTEK_DEBUG: Mencoba buka png: %s", e.path().c_str()); }
-        else if (ext == ".csv")   c.csv++;
-        else if (ext == ".dll")   c.dll++;
-        else                      { c.other++; __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Ext: %s -> %s", ext.c_str(), e.path().filename().c_str()); }
     }
+    __android_log_print(ANDROID_LOG_DEBUG, "LOADER_DEBUG", "Scan dan Load SELESAI. Bersiap masuk render loop...");
+    ui::overlay_logf("LOADER_DEBUG: Scan dan Load SELESAI. Bersiap masuk render loop...");
     // Log unique extensions found
     __android_log_print(ANDROID_LOG_ERROR, "SCANNER_DEBUG", "=== EKSTENSI UNIK YANG DITEMUKAN ===");
     ui::overlay_logf("SCANNER_DEBUG: === EKSTENSI UNIK YANG DITEMUKAN ===");
     for (const auto& ext : unique_exts) {
-        __android_log_print(ANDROID_LOG_ERROR, "SCANNER_EXT", "  Ext: '%s'", ext.c_str());
-        ui::overlay_logf("SCANNER_EXT:   Ext: '%s'", ext.c_str());
+        try {
+            __android_log_print(ANDROID_LOG_ERROR, "SCANNER_EXT", "  Ext: '%s'", ext.c_str());
+            ui::overlay_logf("SCANNER_EXT:   Ext: '%s'", ext.c_str());
+        } catch (...) {
+            c.errors++;
+        }
     }
     __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Scan selesai: total=%llu btex=%llu png=%llu errors=%llu",
                         (unsigned long long)c.total, (unsigned long long)c.btex,
