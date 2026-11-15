@@ -37,6 +37,8 @@ public class MainActivity extends Activity {
 
     private TextView tvAssetStatus;
     private Button btnStart;
+    /** Cached folder-scan JSON pushed back to WebView. */
+    private volatile String lastFolderStatusJson = "{}";
 
     private RadioGroup rgFps;
     private Spinner spTouchPreset;
@@ -55,6 +57,8 @@ public class MainActivity extends Activity {
         void showToast(String message);
         void exitGame();
         String readLog();
+        void rescanFolder();
+        String getFolderStatus();
     }
     private NativeBridge nativeBridge;
 
@@ -116,6 +120,16 @@ public class MainActivity extends Activity {
                 } catch (java.io.IOException e) {
                     return "Gagal membaca log: " + e.getMessage();
                 }
+            }
+
+            @Override
+            public void rescanFolder() {
+                startFolderScan(assetDirForIni());
+            }
+
+            @Override
+            public String getFolderStatus() {
+                return lastFolderStatusJson;
             }
         };
 
@@ -207,6 +221,7 @@ public class MainActivity extends Activity {
         tvAssetStatus.setText("Folder aset: " + path);
         writeSettings();
         updateStartGate();
+        startFolderScan(path);
     }
 
     private static String derivePrimaryPath(Uri uri) {
@@ -273,6 +288,88 @@ public class MainActivity extends Activity {
         android.content.SharedPreferences p =
                 getSharedPreferences("launcher", MODE_PRIVATE);
         // keep defaults
+    }
+
+    /** Walk a directory recursively to count files by extension. */
+    private static void walk(File dir, long[] c, int depth) {
+        if (depth > 12) return;  // safety guard
+        File[] fs = dir.listFiles();
+        if (fs == null) return;
+        for (File f : fs) {
+            if (f.isDirectory()) {
+                walk(f, c, depth + 1);
+            } else if (f.isFile()) {
+                c[0]++;  // total
+                String name = f.getName().toLowerCase();
+                int dot = name.lastIndexOf('.');
+                String ext = (dot >= 0) ? name.substring(dot) : "";
+                switch (ext) {
+                    case ".btex": c[1]++; break;
+                    case ".bsm": c[2]++; break;
+                    case ".bsanim": case ".bssceneanim": c[3]++; break;
+                    case ".xvag": c[4]++; break;
+                    case ".hkx": c[5]++; break;
+                    case ".bsp": c[6]++; break;
+                    case ".bnk": c[7]++; break;
+                    case ".bsfnt": c[8]++; break;
+                    case ".png": c[9]++; break;
+                    case ".csv": c[10]++; break;
+                    case ".dll": c[11]++; break;
+                    default: c[12]++; break;
+                }
+            }
+        }
+    }
+
+    /** Run folder scan in background; result cached & pushed to WebView. */
+    private void startFolderScan(final String path) {
+        if (path == null || path.trim().isEmpty()) return;
+        new Thread(() -> {
+            long[] c = new long[13];
+            try {
+                walk(new File(path), c, 0);
+            } catch (Throwable ignored) {
+            }
+            String json = buildFolderStatusJson(path, c);
+            lastFolderStatusJson = json;
+            runOnUiThread(() -> {
+                if (webView != null) {
+                    webView.evaluateJavascript(
+                        "window.setFolderStatus && window.setFolderStatus(" + json + ");", null);
+                }
+            });
+        }, "folder-scan").start();
+    }
+
+    private String buildFolderStatusJson(String path, long[] c) {
+        String folderName = path;
+        try {
+            folderName = new File(path).getName();
+            if (folderName.isEmpty()) folderName = path;
+        } catch (Throwable ignored) { }
+        StringBuilder sb = new StringBuilder();
+        sb.append('{')
+          .append("\"folder\":\"").append(escapeJson(folderName)).append("\",")
+          .append("\"total\":").append(c[0]).append(',')
+          .append("\"btex\":").append(c[1]).append(',')
+          .append("\"bsm\":").append(c[2]).append(',')
+          .append("\"bsanim\":").append(c[3]).append(',')
+          .append("\"xvag\":").append(c[4]).append(',')
+          .append("\"hkx\":").append(c[5]).append(',')
+          .append("\"bsp\":").append(c[6]).append(',')
+          .append("\"bnk\":").append(c[7]).append(',')
+          .append("\"bsfnt\":").append(c[8]).append(',')
+          .append("\"png\":").append(c[9]).append(',')
+          .append("\"csv\":").append(c[10]).append(',')
+          .append("\"dll\":").append(c[11]).append(',')
+          .append("\"other\":").append(c[12])
+          .append('}');
+        return sb.toString();
+    }
+
+    private static String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void writeSettings() {
@@ -372,6 +469,10 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         updateStartGate();
+        String dir = assetDirForIni();
+        if (dir != null && !dir.trim().isEmpty()) {
+            startFolderScan(dir);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -392,5 +493,9 @@ public class MainActivity extends Activity {
         public void exitGame() { bridge.exitGame(); }
         @JavascriptInterface
         public String readLog() { return bridge.readLog(); }
+        @JavascriptInterface
+        public void rescanFolder() { bridge.rescanFolder(); }
+        @JavascriptInterface
+        public String getFolderStatus() { return bridge.getFolderStatus(); }
     }
 }

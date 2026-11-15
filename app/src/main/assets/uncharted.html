@@ -231,6 +231,7 @@ body{display:grid;place-items:center}
     </svg>
    </button>
   </div>
+  <div id="folderStatus" style="text-align:center;font-size:12px;margin-top:8px;min-height:18px;color:#d0cfca;"></div>
   <button class="menu-btn" type="button" data-action="settings"><span class="ico">⚙</span><span class="label">Pengaturan</span></button>
   <button class="menu-btn" type="button" data-action="about"><span class="ico">ⓘ</span><span class="label">Tentang</span></button>
   <button class="menu-btn" type="button" data-action="exit"><span class="ico">⇥</span><span class="label">Keluar</span></button>
@@ -298,7 +299,7 @@ body{display:grid;place-items:center}
     <p class="setting-note">Catatan: Cheat membutuhkan dukungan mesin rekompilasi yang belum ada di build ini.</p>
    </section>
    <section class="settings-panel" data-panel="log" role="tabpanel">
-    <textarea id="logContent" readonly style="width:100%;max-height:60vh;overflow-y:auto;display:block;background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:10px;border:1px solid #333;border-radius:6px;resize:vertical;"></textarea>
+    <textarea id="logContent" readonly style="width:100%;max-height:60vh;overflow-y:auto;display:block;background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:10px;border:1px solid #333;border-radius:6px;"></textarea>
    </section>
   </div>
  </section>
@@ -342,6 +343,42 @@ folderButton.addEventListener("click",()=>{
  bridge("pickFolder");
 });
 // folderSelected akan di-set saat Java memanggil updatePath via bridge
+
+// Folder status handler (dipanggil dari Java via evaluateJavascript)
+window.setFolderStatus = function(info) {
+ try {
+ let obj = info;
+ if (typeof info === "string") obj = JSON.parse(info);
+ const el = document.getElementById("folderStatus");
+ if (!el) return;
+ const folder = obj.folder || "?";
+ const total = obj.total || 0;
+ const btex = obj.btex || 0;
+ const bsm = obj.bsm || 0;
+ const png = obj.png || 0;
+ if (btex > 0 || bsm > 0) {
+   el.style.color = "#7CFC00";
+   el.textContent = "✅ Folder: " + folder + " (Btex: " + btex + ", Bsm: " + bsm + ", PNG: " + png + ", Total: " + total + ")";
+ } else if (total > 0) {
+   el.style.color = "#ffcc00";
+   el.textContent = "⚠️ Folder: " + folder + " (Btex: 0, Bsm: " + bsm + ", Total: " + total + ") - Tekstur (.btex/.png) tidak ditemukan.";
+ } else {
+   el.style.color = "#ff4d4d";
+   el.textContent = "❌ Folder tidak valid. Pastikan memilih folder uncharted-extracted.";
+ }
+ } catch(e) {
+  const el = document.getElementById("folderStatus");
+  if (el) { el.style.color = "#ff4d4d"; el.textContent = "❌ Gagal membaca status folder: " + e.message; }
+ }
+};
+
+// Ambil status folder saat halaman dimuat (jika sudah pernah memilih)
+setTimeout(() => {
+ try {
+  const raw = bridge("getFolderStatus");
+  if (raw && raw !== "{}" && raw.trim() !== "") window.setFolderStatus(raw);
+ } catch(e) { /* belum ada status */ }
+}, 500);
 
 // Log reading function
 function readLog(){
