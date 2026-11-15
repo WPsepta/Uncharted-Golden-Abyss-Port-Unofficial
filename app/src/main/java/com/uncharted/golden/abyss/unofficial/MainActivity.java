@@ -53,6 +53,8 @@ public class MainActivity extends Activity {
         void startGame();
         void updatePath(String path);
         void showToast(String message);
+        void exitGame();
+        String readLog();
     }
     private NativeBridge nativeBridge;
 
@@ -90,6 +92,29 @@ public class MainActivity extends Activity {
             @Override
             public void showToast(String message) {
                 Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void exitGame() {
+                finish();
+            }
+
+            @Override
+            public String readLog() {
+                File f = logFile();
+                if (!f.exists()) return "recomp.log belum ada.\\nJalankan game minimal sekali.";
+                try {
+                    byte[] buf = new byte[(int) Math.min(f.length(), 64 * 1024)];
+                    java.io.FileInputStream in = new java.io.FileInputStream(f);
+                    int total = 0, n;
+                    while (total < buf.length && (n = in.read(buf, total, buf.length - total)) > 0) {
+                        total += n;
+                    }
+                    in.close();
+                    return new String(buf, 0, total, StandardCharsets.UTF_8);
+                } catch (java.io.IOException e) {
+                    return "Gagal membaca log: " + e.getMessage();
+                }
             }
         };
 
@@ -361,5 +386,9 @@ public class MainActivity extends Activity {
         public void updatePath(String path) { bridge.updatePath(path); }
         @JavascriptInterface
         public void showToast(String message) { bridge.showToast(message); }
+        @JavascriptInterface
+        public void exitGame() { bridge.exitGame(); }
+        @JavascriptInterface
+        public String readLog() { return bridge.readLog(); }
     }
 }

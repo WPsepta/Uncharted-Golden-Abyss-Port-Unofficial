@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>UNCHARTED: GOLDEN ABYSS</title>
 <style>
+html,body{overflow:hidden;height:100%;margin:0;}
 *{box-sizing:border-box}
 :root{--gold:#e9a51e;--gold-light:#ffdc79;--white:#f7f5ef}
 html,body{margin:0;width:100%;height:100%;background:#080b09;color:var(--white);font-family:Roboto,"Segoe UI",Arial,sans-serif}
@@ -117,8 +118,8 @@ document.querySelectorAll(".menu-btn").forEach(button=>{
    // Buka panel Uncharted dengan tabs
    showUnchartedPanel();
   }
-  else if(action==="about")bridge("showToast",["Uncharted: Golden Abyss — Port v1.0"]);
-  else if(action==="exit")bridge("showToast",["Keluar aplikasi."]);
+  else if(action==="about")bridge("showToast",["Uncharted: Golden Abyss — Port v1.0 (Unofficial)"]);
+  else if(action==="exit")bridge("exitGame");
  });
 });
 const folderButton=document.getElementById("folderButton"),picker=document.getElementById("folderPicker");
@@ -162,8 +163,18 @@ function showUnchartedPanel(){
    <p><label><input type="checkbox"> Rear Touchpad Emulation</label></p>
   </div>
   <div id="tab-Cheat" style="display:none;">
-   <h3>Cheat</h3>
-   <p>Tidak ada cheat tersedia di build ini.</p>
+   <h3>Cheat Uncharted: Golden Abyss</h3>
+   <p><label><input type="checkbox"> God Mode (Immortal)</label></p>
+   <p><label><input type="checkbox"> Infinite Ammo</label></p>
+   <p><label><input type="checkbox"> Infinite Health</label></p>
+   <p><label><input type="checkbox"> Infinite Money/Gold</label></p>
+   <p><label><input type="checkbox"> Unlock All Weapons</label></p>
+   <p><label><input type="checkbox"> Unlock All Treasures</label></p>
+   <p><label><input type="checkbox"> Unlock All Chapters</label></p>
+   <p><label><input type="checkbox"> No Reload</label></p>
+   <p><label><input type="checkbox"> One Hit Kill</label></p>
+   <p><label><input type="checkbox"> Max Fire Rate</label></p>
+   <p style="color:#888;font-size:11px;">Catatan: Cheat membutuhkan dukungan mesin rekompilasi yang belum ada di build ini.</p>
   </div>
   <div id="tab-System" style="display:none;">
    <h3>System</h3>
@@ -182,7 +193,8 @@ function showUnchartedPanel(){
   <div id="tab-Log" style="display:none;">
    <h3>Log</h3>
    <p>recomp.log (terakhir 64 KiB)</p>
-   <textarea readonly style="width:100%;height:200px;background:#000;color:#0f0;font-family:monospace;font-size:10px;"></textarea>
+   <button onclick="loadLog()" style="margin-bottom:10px;padding:8px 16px;background:#1a2a22;color:#f7f5ef;border:1px solid #e9a51e;border-radius:6px;cursor:pointer;">Segarkan Log</button>
+   <textarea id="logContent" readonly style="width:100%;height:200px;background:#000;color:#0f0;font-family:monospace;font-size:10px;padding:8px;border:1px solid #333;border-radius:6px;"></textarea>
   </div>
  `;
  
@@ -196,6 +208,16 @@ function switchTab(tabName,btn){
  document.querySelectorAll("button[onclick^='switchTab']").forEach(b=>b.style.background="#1a2a22");
  btn.style.background="#e9a51e";
  btn.style.color="#000";
+ if(tabName==="Log") loadLog();
+}
+
+function loadLog(){
+ try {
+  const log = bridge("readLog");
+  document.getElementById("logContent").value = log || "Log kosong.";
+ } catch(e) {
+  document.getElementById("logContent").value = "Gagal membaca log: " + e.message;
+ }
 }
 </script>
 </body>
