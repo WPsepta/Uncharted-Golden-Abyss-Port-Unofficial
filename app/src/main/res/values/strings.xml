@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Uncharted: Golden Abyss</string>
+    <string name="app_name">Uncharted v1.0</string>
     <string name="title">Uncharted: Golden Abyss</string>
     <string name="subtitle">Port — Launcher</string>
     <string name="start_game">MULAI GAME</string>

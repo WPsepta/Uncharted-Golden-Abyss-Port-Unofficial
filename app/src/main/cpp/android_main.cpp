@@ -78,7 +78,7 @@ static std::string read_ini_value(const char* path, const char* key) {
     while (fgets(line, sizeof(line), f)) {
         if (strncmp(line, key, klen) == 0 && line[klen] == '=') {
             result = line + klen + 1;
-            while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) result.pop_back();
+            while (!result.empty() && (result.back() == '\n' || result.back() == '\r' || result.back() == ' ')) result.pop_back();
         }
     }
     fclose(f);
@@ -97,12 +97,28 @@ static AssetCensus scan_assets(const char* root) {
     namespace fs = std::filesystem;
     AssetCensus c;
     std::error_code ec;
-    if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) {
+    __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Mencoba scan folder: %s", root ? root : "(null)");
+    if (!root || root[0] == '\0') {
+        __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ERROR: root path kosong!");
+        c.errors = 1;
+        return c;
+    }
+    if (!fs::exists(root, ec)) {
+        __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ERROR: path tidak ada: %s (ec=%s)", root, ec.message().c_str());
+        c.errors = 1;
+        return c;
+    }
+    if (!fs::is_directory(root, ec)) {
+        __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ERROR: bukan directory: %s (ec=%s)", root, ec.message().c_str());
         c.errors = 1;
         return c;
     }
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
-    if (ec) { c.errors = 1; return c; }
+    if (ec) {
+        __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ERROR: iterator gagal: %s", ec.message().c_str());
+        c.errors = 1;
+        return c;
+    }
     for (; it != end; it.increment(ec)) {
         if (ec) { c.errors++; ec.clear(); continue; }
         const fs::directory_entry& e = *it;
@@ -110,7 +126,7 @@ static AssetCensus scan_assets(const char* root) {
         std::string ext = e.path().extension().string();
         for (auto& ch : ext) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
         c.total++;
-        if      (ext == ".btex")  c.btex++;
+        if      (ext == ".btex")  { c.btex++; __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Found btex: %s", e.path().c_str()); }
         else if (ext == ".bsm")   c.bsm++;
         else if (ext == ".bsanim" || ext == ".bssceneanim") c.bsanim++;
         else if (ext == ".xvag")  c.xvag++;
@@ -123,6 +139,9 @@ static AssetCensus scan_assets(const char* root) {
         else if (ext == ".dll")   c.dll++;
         else                      c.other++;
     }
+    __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Scan selesai: total=%llu btex=%llu png=%llu errors=%llu",
+                        (unsigned long long)c.total, (unsigned long long)c.btex,
+                        (unsigned long long)c.png, (unsigned long long)c.errors);
     return c;
 }
 
@@ -388,31 +407,9 @@ void render_loop(AppState* s) {
         GLboolean hasTex = glIsTexture(0) ? GL_TRUE : GL_FALSE; // glIsTexture(0) returns GL_FALSE
         RENDERLOG("Render: glIsTexture(0) = %d (0 = tidak ada bound texture)", hasTex);
 
-        // Validasi texture ID: mencegah crash jika texture gagal dimuat (btex=0)
-        // Ambil texture ID yang sedang bound (atau 0 jika tidak ada)
-        GLint boundTex = 0;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTex);
-        if (boundTex == 0) {
-            __android_log_print(ANDROID_LOG_WARN, "RENDER_DEBUG", "No texture bound di frame %d", frameCount);
-        } else {
-            __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Texture bound: %d di frame %d", boundTex, frameCount);
-        }
-
-        // Smoke test: warna merah hanya jika toggle aktif (sebelum clear hitam normal)
-        if (run_smoke_test) {
-            glViewport(0, 0, s->window_width, s->window_height);
-            glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            eglSwapBuffers(s->display, s->surface);
-            EGLLOG("SMOKE TEST: red frame swapped, glGetError=0x%x", glGetError());
-            ui::overlay_logf("SMOKE TEST: red frame swapped, glGetError=0x%x", glGetError());
-            // After smoke test, reset to normal clear color
-            glClearColor(0.023f, 0.031f, 0.041f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        } else {
-            glClearColor(0.023f, 0.031f, 0.041f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        }
+        // Normal clear (no red flicker - smoke test moved to on_cmd, runs once)
+        glClearColor(0.023f, 0.031f, 0.041f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         if (s->imgui_ready) {
             ImGuiIO& io = ImGui::GetIO();
@@ -475,6 +472,7 @@ void android_main(android_app* app) {
     const std::string asset_uri = read_ini_value(state.ini_path, "asset_uri");
     ui::overlay_logf("asset_dir = %s", asset_dir.c_str());
     ui::overlay_logf("asset_uri = %s", asset_uri.c_str());
+    __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Mencoba load asset_dir: %s", asset_dir.c_str());
     if (asset_dir.empty()) {
         ui::overlay_logf("ERROR: asset_dir kosong — pilih folder aset di launcher, "
                          "pastikan folder dipetakan ke path file (mis. /storage/emulated/0/...), "

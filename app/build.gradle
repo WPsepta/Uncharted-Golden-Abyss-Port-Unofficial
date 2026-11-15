@@ -14,6 +14,13 @@ android {
         versionCode 1
         versionName '1.0.0'
 
+        // Unique APK name per build
+        applicationVariants.all { variant ->
+            variant.outputs.all {
+                outputFileName = "UnchartedPort-v${variant.versionName}-${variant.versionCode}.apk"
+            }
+        }
+
         // Vita is ARMv7; the recompiled code is plain C++, run it on arm64-v8a.
         ndk {
             abiFilters 'arm64-v8a', 'armeabi-v7a'
