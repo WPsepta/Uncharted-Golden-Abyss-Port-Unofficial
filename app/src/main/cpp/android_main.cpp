@@ -36,6 +36,8 @@
 #include <string>
 #include <thread>
 #include <system_error>
+#include <signal.h>
+#include <unistd.h>
 
 #define LOG_TAG "uncharted"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -98,24 +100,29 @@ static AssetCensus scan_assets(const char* root) {
     AssetCensus c;
     std::error_code ec;
     __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Mencoba scan folder: %s", root ? root : "(null)");
+    ui::overlay_logf("ASSET_DEBUG: Mencoba scan folder: %s", root ? root : "(null)");
     if (!root || root[0] == '\0') {
         __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ERROR: root path kosong!");
+        ui::overlay_logf("ASSET_DEBUG: ERROR: root path kosong!");
         c.errors = 1;
         return c;
     }
     if (!fs::exists(root, ec)) {
         __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ERROR: path tidak ada: %s (ec=%s)", root, ec.message().c_str());
+        ui::overlay_logf("ASSET_DEBUG: ERROR: path tidak ada: %s (ec=%s)", root, ec.message().c_str());
         c.errors = 1;
         return c;
     }
     if (!fs::is_directory(root, ec)) {
         __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ERROR: bukan directory: %s (ec=%s)", root, ec.message().c_str());
+        ui::overlay_logf("ASSET_DEBUG: ERROR: bukan directory: %s (ec=%s)", root, ec.message().c_str());
         c.errors = 1;
         return c;
     }
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
     if (ec) {
         __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "ERROR: iterator gagal: %s", ec.message().c_str());
+        ui::overlay_logf("ASSET_DEBUG: ERROR: iterator gagal: %s", ec.message().c_str());
         c.errors = 1;
         return c;
     }
@@ -126,7 +133,7 @@ static AssetCensus scan_assets(const char* root) {
         std::string ext = e.path().extension().string();
         for (auto& ch : ext) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
         c.total++;
-        if      (ext == ".btex")  { c.btex++; __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Found btex: %s", e.path().c_str()); }
+        if      (ext == ".btex")  { c.btex++; __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Found btex: %s", e.path().c_str()); ui::overlay_logf("ASSET_DEBUG: Found btex: %s", e.path().c_str()); }
         else if (ext == ".bsm")   c.bsm++;
         else if (ext == ".bsanim" || ext == ".bssceneanim") c.bsanim++;
         else if (ext == ".xvag")  c.xvag++;
@@ -142,6 +149,9 @@ static AssetCensus scan_assets(const char* root) {
     __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Scan selesai: total=%llu btex=%llu png=%llu errors=%llu",
                         (unsigned long long)c.total, (unsigned long long)c.btex,
                         (unsigned long long)c.png, (unsigned long long)c.errors);
+    ui::overlay_logf("ASSET_DEBUG: Scan selesai: total=%llu btex=%llu png=%llu errors=%llu",
+                     (unsigned long long)c.total, (unsigned long long)c.btex,
+                     (unsigned long long)c.png, (unsigned long long)c.errors);
     return c;
 }
 
@@ -379,9 +389,14 @@ void render_loop(AppState* s) {
         float dt = std::chrono::duration<float>(now - last).count();
         last = now;
 
+        // CANARY LOG: Check if render loop is running
+        __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Loop iteration: %d", frameCount);
+        ui::overlay_logf("RENDER_DEBUG: Loop iteration: %d", frameCount);
+
         // Log: Entry render loop pertama
         if (firstFrame) {
             __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Frame 1 started");
+            ui::overlay_logf("RENDER_DEBUG: Frame 1 started");
             firstFrame = false;
         }
 
@@ -450,6 +465,32 @@ void render_loop(AppState* s) {
     }
 }
 
+// Global pointer for signal handler to access log path
+static char g_crash_log_path[512] = "recomp.log";
+
+// SIGSEGV handler - writes crash info to recomp.log
+void sigsegv_handler(int sig, siginfo_t* info, void* ucontext) {
+    FILE* f = fopen(g_crash_log_path, "a");
+    if (f) {
+        fprintf(f, "\n=== CRASH: SIGSEGV (Segmentation Fault) ===\n");
+        fprintf(f, "Signal: %d\n", sig);
+        if (info) {
+            fprintf(f, "Fault address: %p\n", info->si_addr);
+            fprintf(f, "Signal code: %d\n", info->si_code);
+        }
+        fprintf(f, "PID: %d, TID: %d\n", getpid(), gettid());
+        fprintf(f, "=== END CRASH INFO ===\n");
+        fflush(f);
+        fclose(f);
+    }
+    // Also log to logcat
+    __android_log_print(ANDROID_LOG_ERROR, "RENDER_DEBUG", "CRASH: SIGSEGV at address %p, code=%d",
+                        info ? info->si_addr : nullptr, info ? info->si_code : 0);
+    // Re-raise default handler to terminate
+    signal(SIGSEGV, SIG_DFL);
+    raise(SIGSEGV);
+}
+
 }  // namespace
 
 void android_main(android_app* app) {
@@ -463,6 +504,14 @@ void android_main(android_app* app) {
     const char* base = app->activity->internalDataPath;
     join_paths(state.log_path, sizeof(state.log_path), base, "recomp.log");
     join_paths(state.ini_path, sizeof(state.ini_path), base, "settings.ini");
+    // Set crash log path for signal handler
+    snprintf(g_crash_log_path, sizeof(g_crash_log_path), "%s", state.log_path);
+    // Install SIGSEGV handler
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = sigsegv_handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sa, nullptr);
     ui::overlay_init(state.log_path, state.ini_path);
     ui::overlay_logf("=== Uncharted: Golden Abyss — Port (scaffold) ===");
     ui::overlay_logf("Title ID: PCSA00029 | Content ID: UP9000-PCSA00029_00-0000000000000000");
@@ -473,6 +522,7 @@ void android_main(android_app* app) {
     ui::overlay_logf("asset_dir = %s", asset_dir.c_str());
     ui::overlay_logf("asset_uri = %s", asset_uri.c_str());
     __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Mencoba load asset_dir: %s", asset_dir.c_str());
+    ui::overlay_logf("ASSET_DEBUG: Mencoba load asset_dir: %s", asset_dir.c_str());
     if (asset_dir.empty()) {
         ui::overlay_logf("ERROR: asset_dir kosong — pilih folder aset di launcher, "
                          "pastikan folder dipetakan ke path file (mis. /storage/emulated/0/...), "
