@@ -136,7 +136,6 @@ static AssetCensus scan_assets(const char* root) {
         for (auto& ch : ext) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
         c.total++;
         if      (ext == ".btex")  { c.btex++; __android_log_print(ANDROID_LOG_ERROR, "BTEK_DEBUG", "Mencoba buka btex: %s", e.path().c_str()); ui::overlay_logf("BTEK_DEBUG: Mencoba buka btex: %s", e.path().c_str()); }
-        else { __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Ext: %s -> %s", ext.c_str(), e.path().filename().c_str()); }
         else if (ext == ".bsm")   c.bsm++;
         else if (ext == ".bsanim" || ext == ".bssceneanim") c.bsanim++;
         else if (ext == ".xvag")  c.xvag++;
@@ -144,10 +143,10 @@ static AssetCensus scan_assets(const char* root) {
         else if (ext == ".bsp")   c.bsp++;
         else if (ext == ".bnk")   c.bnk++;
         else if (ext == ".bsfnt") c.bsfnt++;
-        else if (ext == ".png")   c.png++;
+        else if (ext == ".png")   { c.png++; __android_log_print(ANDROID_LOG_ERROR, "BTEK_DEBUG", "Mencoba buka png: %s", e.path().c_str()); ui::overlay_logf("BTEK_DEBUG: Mencoba buka png: %s", e.path().c_str()); }
         else if (ext == ".csv")   c.csv++;
         else if (ext == ".dll")   c.dll++;
-        else                      c.other++;
+        else                      { c.other++; __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Ext: %s -> %s", ext.c_str(), e.path().filename().c_str()); }
     }
     __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Scan selesai: total=%llu btex=%llu png=%llu errors=%llu",
                         (unsigned long long)c.total, (unsigned long long)c.btex,
