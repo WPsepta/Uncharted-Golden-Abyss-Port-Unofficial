@@ -135,12 +135,12 @@
             android:layout_marginBottom="4dp" />
     </LinearLayout>
 
-    <!-- WebView untuk UI.html launcher (tampilkan UI dari assets) -->
+    <!-- WebView untuk baru.html launcher (tampilkan UI dari assets) -->
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:visibility="gone" />
+        android:visibility="visible" />
 
     <!-- Pojok kanan atas: Gamepad + tiga titik -->
     <LinearLayout
