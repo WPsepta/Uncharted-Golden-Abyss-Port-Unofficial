@@ -118,10 +118,6 @@ public class MainActivity extends Activity {
             }
         };
 
-        findViewById(R.id.btnGithub).setOnClickListener(v -> {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)));
-        });
-
         tvAssetStatus = findViewById(R.id.tvAssetStatus);
         btnStart = findViewById(R.id.btnStart);
 
