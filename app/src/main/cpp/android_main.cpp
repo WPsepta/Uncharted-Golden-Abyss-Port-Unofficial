@@ -67,6 +67,8 @@ static const char* egl_err_str(EGLint e) {
 
 // Runtime toggle: Mali/Unisoc sering bermasalah dengan ES3.0.
 static bool force_es2 = true;
+// Global btex count from asset scan (for render loop texture check)
+static uint64_t g_btex_count = 0;
 // Toggle smoke test (red frame). Set true to verify EGL pipeline.
 static bool run_smoke_test = true;
 
@@ -133,7 +135,8 @@ static AssetCensus scan_assets(const char* root) {
         std::string ext = e.path().extension().string();
         for (auto& ch : ext) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
         c.total++;
-        if      (ext == ".btex")  { c.btex++; __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Found btex: %s", e.path().c_str()); ui::overlay_logf("ASSET_DEBUG: Found btex: %s", e.path().c_str()); }
+        if      (ext == ".btex")  { c.btex++; __android_log_print(ANDROID_LOG_ERROR, "BTEK_DEBUG", "Mencoba buka btex: %s", e.path().c_str()); ui::overlay_logf("BTEK_DEBUG: Mencoba buka btex: %s", e.path().c_str()); }
+        else { __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Ext: %s -> %s", ext.c_str(), e.path().filename().c_str()); }
         else if (ext == ".bsm")   c.bsm++;
         else if (ext == ".bsanim" || ext == ".bssceneanim") c.bsanim++;
         else if (ext == ".xvag")  c.xvag++;
@@ -422,6 +425,12 @@ void render_loop(AppState* s) {
         GLboolean hasTex = glIsTexture(0) ? GL_TRUE : GL_FALSE; // glIsTexture(0) returns GL_FALSE
         RENDERLOG("Render: glIsTexture(0) = %d (0 = tidak ada bound texture)", hasTex);
 
+        // Check if textures are available before drawing
+        if (g_btex_count == 0) {
+            __android_log_print(ANDROID_LOG_WARN, "RENDER_DEBUG", "Skip draw: Tidak ada tekstur (btex=0)");
+            ui::overlay_logf("RENDER_DEBUG: Skip draw: Tidak ada tekstur (btex=0)");
+        }
+
         // Normal clear (no red flicker - smoke test moved to on_cmd, runs once)
         glClearColor(0.023f, 0.031f, 0.041f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -535,6 +544,7 @@ void android_main(android_app* app) {
     // keputusan render loop berdasarkan hasil nyata, bukan hang di loop hitam.
     const std::string dir = asset_dir;
     AssetCensus c = scan_assets(dir.c_str());   // recursive_directory_iterator
+    g_btex_count = c.btex;
     ui::overlay_logf("asset census @ %s (recursive)", dir.c_str());
     ui::overlay_logf("  xvag=%llu  btex=%llu  bsm=%llu  bsanim=%llu  hkx=%llu",
                      (unsigned long long)c.xvag, (unsigned long long)c.btex,

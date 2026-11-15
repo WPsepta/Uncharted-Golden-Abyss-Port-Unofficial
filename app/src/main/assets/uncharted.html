@@ -299,9 +299,7 @@ body{display:grid;place-items:center}
    </section>
    <section class="settings-panel" data-panel="log" role="tabpanel">
     <h2>Log</h2>
-    <p class="setting-note">recomp.log (terakhir 64 KiB) — menampilkan error dan status game.</p>
-    <button id="refreshLog" type="button" style="margin-bottom:12px;padding:8px 16px;background:#1a2a22;color:#f7f5ef;border:1px solid #e9a51e;border-radius:6px;cursor:pointer;">Segarkan Log</button>
-    <textarea id="logContent" readonly style="width:100%;height:300px;background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:10px;border:1px solid #333;border-radius:6px;resize:vertical;"></textarea>
+    <textarea id="logContent" readonly style="width:100%;height:400px;background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:10px;border:1px solid #333;border-radius:6px;resize:vertical;"></textarea>
    </section>
   </div>
  </section>
@@ -350,20 +348,21 @@ folderButton.addEventListener("click",()=>{
 function readLog(){
  try {
   const log = bridge("readLog");
-  return log || "Log kosong.";
+  if (!log || log.trim() === "") return "Log kosong.\n\n=== AKHIR DARI LOG ===";
+  // Auto-scroll to bottom
+  const logContent = document.getElementById("logContent");
+  if (logContent) {
+   logContent.value = log + "\n\n=== AKHIR DARI LOG ===";
+   setTimeout(()=>{ logContent.scrollTop = logContent.scrollHeight; },50);
+  }
+  return log + "\n\n=== AKHIR DARI LOG ===";
  } catch(e) {
-  return "Gagal membaca log: " + e.message;
+  return "Gagal membaca log: " + e.message + "\n\n=== AKHIR DARI LOG ===";
  }
 }
 
-// Refresh log button
-document.getElementById("refreshLog").addEventListener("click",()=>{
- const logContent = document.getElementById("logContent");
- logContent.value = "Memuat log...";
- setTimeout(()=>{
-  logContent.value = readLog();
- },100);
-});
+// Auto-load log when switching to Log tab
+// (handled in setTab function)
 
 // Auto-load log when switching to Log tab (will be patched after setTab is defined)
 
@@ -390,7 +389,10 @@ function setTab(tab){
   const logContent = document.getElementById("logContent");
   if(logContent) {
    logContent.value = "Memuat log...";
-   setTimeout(()=>{ logContent.value = readLog(); },100);
+   setTimeout(()=>{
+    logContent.value = readLog();
+    logContent.scrollTop = logContent.scrollHeight;
+   },100);
   }
  }
 }
