@@ -330,33 +330,21 @@ document.querySelectorAll(".menu-btn").forEach(button=>{
   selectButton(button);
   const action=button.dataset.action;
   if(action==="start"){
-   if(!folderSelected) {
-    bridge("showToast",["File game belum dipilih. Silakan pilih folder uncharted-extracted."]);
-    const picker = document.getElementById("folderPicker");
-    if(picker) picker.click();
-   } else {
-    bridge("startGame");
-   }
+   bridge("startGame");
   }
   else if(action==="settings")openSettings();
   else if(action==="about")openAbout();
   else if(action==="exit")bridge("exitGame");
  });
 });
-const folderButton=document.getElementById("folderButton"),picker=document.getElementById("folderPicker");
+const folderButton=document.getElementById("folderButton");
 folderButton.addEventListener("click",()=>{
  selectButton(folderButton);
- if(!("webkitdirectory" in picker)){notify("Browser ini belum mendukung pemilihan folder.");return}
- picker.click();
+ notify("Membuka pemilih folder...");
+ // WebView tidak mendukung webkitdirectory, gunakan Native Bridge (SAF)
+ bridge("pickFolder");
 });
-picker.addEventListener("change",()=>{
- const files=[...picker.files];if(!files.length)return;
- const folder=files[0].webkitRelativePath.split("/")[0]||"Folder";
- notify("Folder dipilih: "+folder+" ("+files.length+" file)");
- folderSelected = true;
- bridge("updatePath",[folder]);
- bridge("showToast",["Folder aset: "+folder]);
-});
+// folderSelected akan di-set saat Java memanggil updatePath via bridge
 
 // Log reading function
 function readLog(){

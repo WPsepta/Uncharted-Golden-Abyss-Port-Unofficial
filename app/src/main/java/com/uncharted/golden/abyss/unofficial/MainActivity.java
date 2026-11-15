@@ -75,6 +75,7 @@ public class MainActivity extends Activity {
             @Override
             public void startGame() {
                 if (!assetSelected()) {
+                    Toast.makeText(MainActivity.this, "File game belum dipilih. Silakan pilih folder uncharted-extracted.", Toast.LENGTH_LONG).show();
                     openFolderPicker();
                     return;
                 }
@@ -126,6 +127,11 @@ public class MainActivity extends Activity {
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setAllowFileAccess(true);
         webView.getSettings().setDomStorageEnabled(true);
+        webView.getSettings().setLoadWithOverviewMode(true);
+        webView.getSettings().setUseWideViewPort(true);
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.setClickable(true);
         webView.addJavascriptInterface(new JavascriptBridge(nativeBridge), "NativeBridge");
         String htmlPath = "file:///android_asset/uncharted.html";
         webView.loadUrl(htmlPath);
