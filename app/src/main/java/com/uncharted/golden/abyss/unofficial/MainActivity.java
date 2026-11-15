@@ -131,7 +131,7 @@ public class MainActivity extends Activity {
         webView.getSettings().setAllowFileAccess(true);
         webView.getSettings().setDomStorageEnabled(true);
         webView.addJavascriptInterface(new JavascriptBridge(nativeBridge), "NativeBridge");
-        String htmlPath = "file:///android_asset/baru.html";
+        String htmlPath = "file:///android_asset/uncharted.html";
         webView.loadUrl(htmlPath);
 
         findViewById(R.id.btnPickAssets).setOnClickListener(v -> openFolderPicker());
