@@ -434,7 +434,7 @@ void render_loop(AppState* s) {
         }
 
         // Draw call counting (placeholder: ImGui draw calls)
-        int drawCount = ImGui::GetDrawData()->cmd_list_count;
+        int drawCount = ImGui::GetDrawData()->CmdListsCount;
         RENDERLOG("Render: draw calls this frame = %d", drawCount);
 
         frameCount++;
