@@ -94,39 +94,14 @@ const buttons=[...document.querySelectorAll(".menu-btn,.folder-btn")];
 const toastBox=document.getElementById("toast");let timer;
 function notify(text){toastBox.textContent=text;toastBox.classList.add("show");clearTimeout(timer);timer=setTimeout(()=>toastBox.classList.remove("show"),2400)}
 function selectButton(button){buttons.forEach(b=>b.classList.toggle("selected",b===button))}
-
-// Native Bridge helper
-function bridge(method,args=[]){
- const b=window.NativeBridge;
- if(b&&b[method]){
-  if(args.length===0)b[method]();
-  else if(args.length===1)b[method](args[0]);
-  else b[method](...args);
- } else { notify("Bridge tidak tersedia: "+method); }
-}
-
 document.querySelectorAll(".menu-btn").forEach(button=>{
  button.addEventListener("click",()=>{
   selectButton(button);
   const action=button.dataset.action;
-  if(action==="start"){
-   // Cek apakah folder sudah dipilih
-   const folderStatus = document.getElementById("folderStatus");
-   if(folderStatus && folderStatus.textContent.includes("belum")) {
-    bridge("showToast",["File game belum dipilih. Silakan pilih folder uncharted-extracted."]);
-    const picker = document.getElementById("folderPicker");
-    if(picker) picker.click();
-   } else {
-    bridge("startGame");
-   }
-  }
-  else if(action==="settings"){
-   bridge("showToast",["Pengaturan dipilih."]);
-   // Buka panel Uncharted dengan tabs
-   showUnchartedPanel();
-  }
-  else if(action==="about")bridge("showToast",["Uncharted: Golden Abyss — Port v1.0"]);
-  else if(action==="exit")bridge("showToast",["Keluar aplikasi."]);
+  if(action==="start")notify("Mulai dipilih.");
+  else if(action==="settings")notify("Pengaturan dipilih.");
+  else if(action==="about")notify("Uncharted: Golden Abyss — Android Native UI.");
+  else if(action==="exit")notify("Tombol Keluar dipilih.");
  });
 });
 const folderButton=document.getElementById("folderButton"),picker=document.getElementById("folderPicker");
@@ -139,72 +114,7 @@ picker.addEventListener("change",()=>{
  const files=[...picker.files];if(!files.length)return;
  const folder=files[0].webkitRelativePath.split("/")[0]||"Folder";
  notify("Folder dipilih: "+folder+" ("+files.length+" file)");
- bridge("updatePath",[folder]);
- bridge("showToast",["Folder aset: "+folder]);
 });
-
-// Uncharted Settings Panel (Performance, Controls, Cheat, System, Info, Log)
-function showUnchartedPanel(){
- const panel = document.createElement("div");
- panel.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;max-width:600px;max-height:80vh;background:#101814;border:2px solid #e9a51e;border-radius:12px;overflow:auto;z-index:1000;padding:20px;color:#f7f5ef;";
- 
- const tabs = ["Performance","Controls","Cheat","System","Info","Log"];
- let tabHtml = '<div style="display:flex;gap:5px;margin-bottom:15px;flex-wrap:wrap;">';
- tabs.forEach((t,i)=>{
-  tabHtml += `<button onclick="switchTab('${t}',this)" style="padding:8px 12px;background:${i===0?'#e9a51e':'#1a2a22'};color:${i===0?'#000':'#f7f5ef'};border:none;border-radius:6px;cursor:pointer;font-size:12px;">${t}</button>`;
- });
- tabHtml += '</div>';
- 
- const content = `
-  <div id="tab-Performance" style="display:block;">
-   <h3>Performance</h3>
-   <p>FPS Limit: <button onclick="bridge('showToast',['FPS 30'])">30</button> <button onclick="bridge('showToast',['FPS 60'])">60</button> <button onclick="bridge('showToast',['FPS Unlimited'])">Unlimited</button></p>
-   <p>Resolution Scale: <input type="range" min="50" max="100" value="100" style="width:60%;"></p>
-   <p><label><input type="checkbox"> VSync</label></p>
-   <p><label><input type="checkbox"> Show FPS Counter</label></p>
-  </div>
-  <div id="tab-Controls" style="display:none;">
-   <h3>Controls</h3>
-   <p>Touch Preset: <select><option>Thumb Left</option><option>Thumb Right</option><option>Classic D-pad</option></select></p>
-   <p>Sensitivity: <input type="range" min="0" max="100" value="50"></p>
-   <p><label><input type="checkbox"> Rear Touchpad Emulation</label></p>
-  </div>
-  <div id="tab-Cheat" style="display:none;">
-   <h3>Cheat</h3>
-   <p>Tidak ada cheat tersedia di build ini.</p>
-  </div>
-  <div id="tab-System" style="display:none;">
-   <h3>System</h3>
-   <p>Asset Dir: <input type="text" readonly style="width:100%;padding:5px;background:#000;color:#fff;"></p>
-   <p>Audio: <input type="range" min="0" max="100" value="80"></p>
-   <p><button onclick="bridge('showToast',['Save State'])">Save State</button> <button onclick="bridge('showToast',['Load State'])">Load State</button></p>
-   <p><button onclick="bridge('showToast',['Exit Game'])" style="background:#5c2a2a;color:#fff;">Exit Game</button></p>
-  </div>
-  <div id="tab-Info" style="display:none;">
-   <h3>Info</h3>
-   <p>Title ID: PCSA00029</p>
-   <p>Content ID: UP9000-PCSA00029_00-0000000000000000</p>
-   <p>Application: com.uncharted.golden.abyss.unofficial</p>
-   <p>Repo: github.com/WPsepta/Uncharted-Golden-Abyss-Port-Unofficial</p>
-  </div>
-  <div id="tab-Log" style="display:none;">
-   <h3>Log</h3>
-   <p>recomp.log (terakhir 64 KiB)</p>
-   <textarea readonly style="width:100%;height:200px;background:#000;color:#0f0;font-family:monospace;font-size:10px;"></textarea>
-  </div>
- `;
- 
- panel.innerHTML = '<button onclick="this.parentElement.remove()" style="position:absolute;top:10px;right:10px;background:#5c2a2a;color:#fff;border:none;border-radius:4px;padding:5px 10px;cursor:pointer;">X</button>' + tabHtml + content;
- document.body.appendChild(panel);
-}
-
-function switchTab(tabName,btn){
- document.querySelectorAll("[id^='tab-']").forEach(el=>el.style.display="none");
- document.getElementById("tab-"+tabName).style.display="block";
- document.querySelectorAll("button[onclick^='switchTab']").forEach(b=>b.style.background="#1a2a22");
- btn.style.background="#e9a51e";
- btn.style.color="#000";
-}
 </script>
 </body>
 </html>
