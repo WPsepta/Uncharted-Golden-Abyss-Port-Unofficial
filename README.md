@@ -78,7 +78,29 @@ tools/gen_local.sh
 
 `settings.ini` (app-private files dir, dibagi launcher & game):
 `fps=30|60|0`, `touch_preset=0|1|2`, `sensitivity=0-100`, `show_fps=0|1`,
-`vsync=0|1`, `res_scale=50-100`.
+`vsync=0|1`, `res_scale=50-100`, `asset_dir=...`, `asset_uri=...`,
+`use_game_elf=0|1`, `game_elf_path=/path/ke/uncharted_decrypted.elf`.
+
+### Debug: boot engine dari ELF milik sendiri (`use_game_elf`)
+
+**Default ON** (bisa dimatikan di **Pengaturan → "Boot game ELF (debug)"**).
+Isi path ELF bila berbeda, lalu letakkan `uncharted_decrypted.elf` (hasil
+dekripsi SELF milik Anda sendiri) di folder Download. Saat `use_game_elf=1`,
+thread worker memanggil:
+
+1. `rc::rc_boot()` — memetakan guest memory 256 MiB,
+2. `rc::rc_load_elf_data(path)` — menyalin segmen `PT_LOAD` ke memori guest,
+3. `rc::Cpu::run()` per-chunk 2 juta blok, dengan log progres
+   `ENGINE_DEBUG: guest chunk ... blocks=... pc=...`.
+
+Setiap import PS Vita yang belum dipetakan dicetak sebagai
+`HLE_MISSING: Unmapped HLE import: ... (NID: 0x........)` lalu **return 0**
+(tidak crash). Fault guest (SIGSEGV/SIGBUS/SIGILL/SIGFPE) di thread boot
+dipulihkan lewat `siglongjmp` — aplikasi tetap hidup dan render loop terus
+berjalan.
+
+ELF game **tidak pernah** dibundel ke APK/repo; file itu tetap di perangkat
+Anda. Tanpa ELF, flag ini hanya mencetak error dan boot dilewati.
 
 ## GitHub Actions
 
@@ -89,7 +111,9 @@ Workflow `build_apk.yml`:
    `gen/recompiled_part*.cpp` ) diunggah **manual** (GitHub web / release asset),
    tidak ikut git. CI mencari file itu di checkout; bila tidak ada, mengunduh
    dari `vars.SOURCE_ZIP_URL` / input `source_url`; bila tetap tidak ada, build
-   gagal dengan pesan jelas. Isi zip diekstrak ke `app/src/main/cpp/`.
+   gagal dengan pesan jelas. Isi zip diekstrak ke `app/src/main/cpp/`, lalu
+   `tools/patch_hle_fallback.py` menambal `rc_hle_dispatch()` agar NID tak
+   dikenal hanya log `HLE_MISSING` + `return 0` (tidak crash).
 3. JDK 17 (Temurin) + Android SDK cmdline-tools + NDK 26.3 + Gradle 8.10.2,
    `gradle :app:assembleDebug`, upload artifact `Uncharted_Port-debug`.
 

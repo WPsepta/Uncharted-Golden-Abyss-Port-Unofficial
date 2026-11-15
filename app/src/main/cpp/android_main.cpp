@@ -30,7 +30,9 @@
 
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
+#include <cstdarg>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -39,6 +41,8 @@
 #include <thread>
 #include <system_error>
 #include <signal.h>
+#include <setjmp.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 #define LOG_TAG "uncharted"
@@ -216,6 +220,9 @@ struct AppState {
     bool imgui_ready = false;
     int window_width = 0;
     int window_height = 0;
+#if RC_WITH_GAME_CODE
+    rc::Cpu cpu{};                 // guest CPU (di-boot hanya jika use_game_elf=1)
+#endif
 };
 
 AppState* g_app = nullptr;
@@ -373,6 +380,132 @@ int32_t on_input(android_app* app, AInputEvent* ev) {
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// Guest ELF boot (DEBUG, opt-in via settings.ini: use_game_elf=1)
+// ---------------------------------------------------------------------------
+// Recovery fault khusus thread worker yang sedang menjalankan guest.
+// Thread lain (mis. render loop) tetap memakai jalur crash lama.
+// Declared unconditionally: signal handler juga dikompilasi pada build stub.
+static thread_local sigjmp_buf* t_guest_jmp = nullptr;
+static thread_local volatile sig_atomic_t t_guest_armed = 0;
+
+#if RC_WITH_GAME_CODE
+// Path default; bisa dioverride di settings.ini: game_elf_path=/path/ke/elf
+static const char* kDefaultElfPath =
+    "/storage/emulated/0/Download/uncharted_decrypted.elf";
+
+// Maks blok guest per chunk. run() dipanggil per-chunk supaya kita bisa:
+//   - mencetak progres (pc + jumlah blok),
+//   - berhenti jika render thread/Activity dimatikan,
+//   - pulih dari SIGSEGV guest tanpa membunuh aplikasi (siglongjmp).
+static constexpr uint64_t kGuestBlocksPerChunk = 2000000ULL;
+
+static void engine_logf(const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    char buf[1024];
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    __android_log_print(ANDROID_LOG_DEBUG, "ENGINE_DEBUG", "%s", buf);
+    ui::overlay_logf("ENGINE_DEBUG: %s", buf);
+}
+
+static bool ini_truthy(const std::string& v) {
+    return v == "1" || v == "true" || v == "TRUE" || v == "yes" || v == "on";
+}
+
+static void boot_guest_elf(AppState* s, const char* elf_path) {
+    engine_logf("Memulai boot engine (rc_boot + rc_load_elf_data): %s", elf_path);
+
+    errno = 0;
+    FILE* f = fopen(elf_path, "rb");
+    if (!f) {
+        engine_logf("ELF TIDAK BISA DIBUKA: %s (errno=%d: %s). "
+                    "Taruh uncharted_decrypted.elf di folder Download.",
+                    elf_path, errno, strerror(errno));
+        return;
+    }
+    unsigned char magic[4] = {0, 0, 0, 0};
+    size_t nread = fread(magic, 1, sizeof(magic), f);
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fclose(f);
+    engine_logf("ELF ditemukan: %ld byte, magic=%02x%02x%02x%02x",
+                fsize, magic[0], magic[1], magic[2], magic[3]);
+    if (nread < 4 || memcmp(magic, "\x7f" "ELF", 4) != 0) {
+        engine_logf("BUKAN ELF yang valid (magic salah). File mungkin masih "
+                    "terenkripsi/terbungkus PFS. Boot dibatalkan.");
+        return;
+    }
+
+    if (!rc::rc_boot(s->cpu)) {
+        engine_logf("rc::rc_boot GAGAL (mmap guest memory 256 MiB ditolak). "
+                    "Boot dibatalkan, aplikasi tetap berjalan.");
+        return;
+    }
+    engine_logf("rc::rc_boot OK: guest memory 256 MiB terpetakan.");
+
+    if (!rc::rc_load_elf_data(s->cpu, elf_path)) {
+        engine_logf("rc_load_elf_data GAGAL: tidak ada PT_LOAD yang cocok "
+                    "dengan guest window. Boot dibatalkan.");
+        rc::rc_shutdown(s->cpu);
+        return;
+    }
+    engine_logf("ELF data ter-load. Entry pc=0x%08x thumb=%d. Mulai eksekusi guest...",
+                s->cpu.next_pc, (int)s->cpu.thumb);
+
+    sigjmp_buf jb;
+    t_guest_jmp = &jb;
+    uint64_t chunks = 0;
+    while (s->running.load()) {
+        const uint64_t before = s->cpu.blocks_run;
+        s->cpu.max_blocks = before + kGuestBlocksPerChunk;
+        s->cpu.running = true;
+
+        if (sigsetjmp(jb, 1) != 0) {
+            // Kembali dari signal handler (guest fault) — JANGAN crash.
+            t_guest_armed = 0;
+            __android_log_print(ANDROID_LOG_ERROR, "CPU_FAULT",
+                "Guest fault ter-recover: app TIDAK crash. pc=0x%08x blocks=%llu",
+                s->cpu.current_pc, (unsigned long long)s->cpu.blocks_run);
+            ui::overlay_logf("CPU_FAULT: Guest fault ter-recover (app TIDAK crash). "
+                             "pc=0x%08x blocks=%llu",
+                             s->cpu.current_pc, (unsigned long long)s->cpu.blocks_run);
+            break;
+        }
+        t_guest_armed = 1;
+        s->cpu.run();
+        t_guest_armed = 0;
+
+        ++chunks;
+        engine_logf("guest chunk %llu: blocks=%llu pc=0x%08x running=%d faulted=%d",
+                    (unsigned long long)chunks,
+                    (unsigned long long)s->cpu.blocks_run,
+                    s->cpu.current_pc, (int)s->cpu.running, (int)s->cpu.faulted);
+
+        if (s->cpu.faulted) {
+            engine_logf("Guest berhenti karena fault internal (memori di luar range).");
+            break;
+        }
+        if (s->cpu.blocks_run == before) {
+            engine_logf("Guest STALL: tidak ada blok rekompilasi di pc=0x%08x. "
+                        "Eksekusi dihentikan (app tetap hidup).", s->cpu.next_pc);
+            break;
+        }
+        const bool chunk_limit = (s->cpu.blocks_run >= s->cpu.max_blocks);
+        if (!s->cpu.running && !chunk_limit) {
+            engine_logf("Guest halt normal (running=false) di pc=0x%08x.", s->cpu.current_pc);
+            break;
+        }
+        // chunk_limit -> lanjut chunk berikutnya.
+    }
+    t_guest_jmp = nullptr;
+    engine_logf("Boot loop selesai: total blocks=%llu. Melepas guest memory.",
+                (unsigned long long)s->cpu.blocks_run);
+    rc::rc_shutdown(s->cpu);
+}
+#endif  // RC_WITH_GAME_CODE
+
 void on_cmd(android_app* app, int32_t cmd) {
     AppState* s = static_cast<AppState*>(app->userData);
     if (!s) return;
@@ -393,12 +526,24 @@ void on_cmd(android_app* app, int32_t cmd) {
             ui::overlay_logf("game window init: %dx%d", s->window_width, s->window_height);
 #if RC_WITH_GAME_CODE
             s->worker = std::thread([s] {
-                __android_log_print(ANDROID_LOG_DEBUG, "ENGINE_DEBUG", "Engine status: boot SENGAJA dimatikan (#if 0 rc::rc_boot). Game code/state machine TIDAK berjalan — video/cutscene tidak pernah dieksekusi; draw call engine tidak akan pernah muncul di build ini.");
-                ui::overlay_logf("ENGINE_DEBUG: Engine status: boot SENGAJA dimatikan (#if 0 rc::rc_boot). Video/cutscene tidak pernah dieksekusi; draw call engine tidak akan muncul di build ini.");
-                ui::overlay_logf("rc:: boot thread started (game code present)");
-#if 0
-                rc::rc_boot(s->cpu);  // not wired: HLE/loader still incomplete
-#endif
+                const std::string use_elf = read_ini_value(s->ini_path, "use_game_elf");
+                std::string elf_path = read_ini_value(s->ini_path, "game_elf_path");
+                if (elf_path.empty()) elf_path = kDefaultElfPath;
+                const bool enabled = ini_truthy(use_elf);
+
+                __android_log_print(ANDROID_LOG_DEBUG, "ENGINE_DEBUG",
+                    "use_game_elf='%s' (enabled=%d) game_elf_path='%s'",
+                    use_elf.c_str(), enabled ? 1 : 0, elf_path.c_str());
+                ui::overlay_logf("ENGINE_DEBUG: use_game_elf='%s' (enabled=%d) game_elf_path='%s'",
+                                 use_elf.c_str(), enabled ? 1 : 0, elf_path.c_str());
+
+                if (!enabled) {
+                    ui::overlay_logf("ENGINE_DEBUG: Boot engine DILEWATI. "
+                                     "Aktifkan di Pengaturan launcher atau set "
+                                     "use_game_elf=1 di settings.ini.");
+                    return;
+                }
+                boot_guest_elf(s, elf_path.c_str());
             });
 #else
             ui::overlay_logf("stub build: recompiled parts tidak disertakan (lihat README)");
@@ -546,9 +691,26 @@ static char g_crash_log_path[512] = "recomp.log";
 
 // SIGSEGV handler - writes crash info to recomp.log
 void sigsegv_handler(int sig, siginfo_t* info, void* ucontext) {
+    // PRIORITAS 1: fault dari guest ELF (thread worker yang sedang rc::Cpu::run()).
+    // Jangan bunuh aplikasi — log lalu siglongjmp balik ke boot loop.
+    if (t_guest_armed && t_guest_jmp) {
+        uintptr_t pc = 0;
+#if defined(__aarch64__)
+        if (ucontext) pc = (uintptr_t)((ucontext_t*)ucontext)->uc_mcontext.pc;
+#elif defined(__arm__)
+        if (ucontext) pc = (uintptr_t)((ucontext_t*)ucontext)->uc_mcontext.arm_pc;
+#endif
+        __android_log_print(ANDROID_LOG_ERROR, "CPU_FAULT",
+            "Guest fault: sig=%d addr=%p pc=0x%lx — pemulihan via siglongjmp "
+            "(aplikasi TIDAK crash)",
+            sig, info ? info->si_addr : nullptr, (unsigned long)pc);
+        t_guest_armed = 0;
+        siglongjmp(*t_guest_jmp, 1);
+    }
+
     FILE* f = fopen(g_crash_log_path, "a");
     if (f) {
-        fprintf(f, "\n=== CRASH: SIGSEGV (Segmentation Fault) ===\n");
+        fprintf(f, "\n=== CRASH: signal %d ===\n", sig);
         fprintf(f, "Signal: %d\n", sig);
         if (info) {
             fprintf(f, "Fault address: %p\n", info->si_addr);
@@ -560,11 +722,11 @@ void sigsegv_handler(int sig, siginfo_t* info, void* ucontext) {
         fclose(f);
     }
     // Also log to logcat
-    __android_log_print(ANDROID_LOG_ERROR, "RENDER_DEBUG", "CRASH: SIGSEGV at address %p, code=%d",
-                        info ? info->si_addr : nullptr, info ? info->si_code : 0);
+    __android_log_print(ANDROID_LOG_ERROR, "RENDER_DEBUG", "CRASH: signal %d at address %p, code=%d",
+                        sig, info ? info->si_addr : nullptr, info ? info->si_code : 0);
     // Re-raise default handler to terminate
-    signal(SIGSEGV, SIG_DFL);
-    raise(SIGSEGV);
+    signal(sig, SIG_DFL);
+    raise(sig);
 }
 
 }  // namespace
@@ -582,12 +744,16 @@ void android_main(android_app* app) {
     join_paths(state.ini_path, sizeof(state.ini_path), base, "settings.ini");
     // Set crash log path for signal handler
     snprintf(g_crash_log_path, sizeof(g_crash_log_path), "%s", state.log_path);
-    // Install SIGSEGV handler
+    // Install crash/fault handlers. SIGSEGV/SIGBUS/SIGILL/SIGFPE: jika fault
+    // berasal dari guest ELF, handler memulihkan (siglongjmp) alih-alih mematikan app.
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = sigsegv_handler;
     sa.sa_flags = SA_SIGINFO;
     sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGBUS,  &sa, nullptr);
+    sigaction(SIGILL,  &sa, nullptr);
+    sigaction(SIGFPE,  &sa, nullptr);
     ui::overlay_init(state.log_path, state.ini_path);
     ui::overlay_logf("=== Uncharted: Golden Abyss — Port (scaffold) ===");
     ui::overlay_logf("Title ID: PCSA00029 | Content ID: UP9000-PCSA00029_00-0000000000000000");
@@ -597,6 +763,19 @@ void android_main(android_app* app) {
     const std::string asset_uri = read_ini_value(state.ini_path, "asset_uri");
     ui::overlay_logf("asset_dir = %s", asset_dir.c_str());
     ui::overlay_logf("asset_uri = %s", asset_uri.c_str());
+#if RC_WITH_GAME_CODE
+    {
+        std::string use_elf = read_ini_value(state.ini_path, "use_game_elf");
+        std::string elf_path = read_ini_value(state.ini_path, "game_elf_path");
+        if (elf_path.empty()) elf_path = kDefaultElfPath;
+        ui::overlay_logf("use_game_elf = %s | game_elf_path = %s",
+                         use_elf.empty() ? "(tidak diset -> boot dilewati)" : use_elf.c_str(),
+                         elf_path.c_str());
+        __android_log_print(ANDROID_LOG_DEBUG, "ENGINE_DEBUG",
+                            "use_game_elf='%s' game_elf_path='%s'",
+                            use_elf.c_str(), elf_path.c_str());
+    }
+#endif
     __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Mencoba load asset_dir: %s", asset_dir.c_str());
     ui::overlay_logf("ASSET_DEBUG: Mencoba load asset_dir: %s", asset_dir.c_str());
     if (asset_dir.empty()) {

@@ -13,6 +13,7 @@ import android.provider.Settings;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
@@ -34,6 +35,9 @@ public class MainActivity extends Activity {
     private static final String REPO_URL =
             "https://github.com/WPsepta/Uncharted-Golden-Abyss-Port-Unofficial.git";
     private static final int REQ_PICK_ASSETS = 4217;
+    /** Default lokasi ELF terdekripsi (di luar APK; milik user sendiri). */
+    private static final String DEFAULT_GAME_ELF_PATH =
+            "/storage/emulated/0/Download/uncharted_decrypted.elf";
 
     private TextView tvAssetStatus;
     private Button btnStart;
@@ -389,7 +393,9 @@ public class MainActivity extends Activity {
                 + "show_fps=" + (showFps ? 1 : 0) + "\n"
                 + "vsync=" + (vsync ? 1 : 0) + "\n"
                 + "asset_dir=" + assetDirForIni() + "\n"
-                + "asset_uri=" + assetUriForIni() + "\n";
+                + "asset_uri=" + assetUriForIni() + "\n"
+                + "use_game_elf=" + (p.getBoolean("use_game_elf", true) ? 1 : 0) + "\n"
+                + "game_elf_path=" + p.getString("game_elf_path", DEFAULT_GAME_ELF_PATH) + "\n";
         try {
             java.io.FileOutputStream out = new java.io.FileOutputStream(settingsFile());
             out.write(ini.getBytes(StandardCharsets.UTF_8));
@@ -414,10 +420,56 @@ public class MainActivity extends Activity {
         btnLog.setOnClickListener(v -> showLogDialog());
         root.addView(btnLog);
 
+        // --- DEBUG: boot engine dari ELF milik user sendiri -----------------
+        final android.content.SharedPreferences p =
+                getSharedPreferences("launcher", MODE_PRIVATE);
+
+        final Switch swElf = new Switch(this);
+        swElf.setText("Boot game ELF (debug)");
+        swElf.setTextSize(12);
+        swElf.setChecked(p.getBoolean("use_game_elf", true));
+        root.addView(swElf);
+
+        TextView tvElfHint = new TextView(this);
+        tvElfHint.setText("Path ELF (letakkan file di folder Download):");
+        tvElfHint.setTextSize(11);
+        root.addView(tvElfHint);
+
+        final EditText etElfPath = new EditText(this);
+        etElfPath.setText(p.getString("game_elf_path", DEFAULT_GAME_ELF_PATH));
+        etElfPath.setTextSize(11);
+        etElfPath.setSingleLine(true);
+        root.addView(etElfPath);
+
+        final TextView tvElfStatus = new TextView(this);
+        tvElfStatus.setTextSize(11);
+        root.addView(tvElfStatus);
+
+        File elfFile = new File(etElfPath.getText().toString().trim());
+        tvElfStatus.setText(elfFile.isFile()
+                ? "✅ ELF ditemukan (" + (elfFile.length() / (1024 * 1024)) + " MB)"
+                : "⚠️ ELF belum ada di path itu (boot akan dilewati)");
+
         new AlertDialog.Builder(this)
                 .setTitle("Pengaturan")
                 .setView(root)
-                .setPositiveButton("Tutup", null)
+                .setPositiveButton("Simpan", (d, w) -> {
+                    String path = etElfPath.getText().toString().trim();
+                    if (path.isEmpty()) path = DEFAULT_GAME_ELF_PATH;
+                    p.edit()
+                            .putBoolean("use_game_elf", swElf.isChecked())
+                            .putString("game_elf_path", path)
+                            .apply();
+                    writeSettings();
+                    if (swElf.isChecked() && !new File(path).isFile()) {
+                        Toast.makeText(this,
+                                "use_game_elf=1 tapi ELF tidak ditemukan:\n" + path,
+                                Toast.LENGTH_LONG).show();
+                    } else {
+                        Toast.makeText(this, "Pengaturan disimpan", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Batal", null)
                 .show();
     }
 

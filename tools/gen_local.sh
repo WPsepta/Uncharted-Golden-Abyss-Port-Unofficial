@@ -28,6 +28,9 @@ mkdir -p "$DST/gen"
 cp "$SRC"/gen/recompiled_part[0-9][0-9][0-9].cpp "$DST/gen/"
 cp "$SRC"/gen/recompiled_parts.cpp "$DST/gen/"
 
+# Samakan perilaku HLE dengan CI: NID tak dikenal -> log HLE_MISSING + return 0
+python3 "$ROOT/tools/patch_hle_fallback.py" "$DST/recomp.cpp"
+
 echo "OK: full-build sources disalin ke $DST/gen/"
 echo "Jumlah part: $(ls "$DST"/gen/recompiled_part[0-9][0-9][0-9].cpp | wc -l)"
 echo
