@@ -5,7 +5,7 @@
 //   - Frame limiter from settings.ini (30/60/∞)
 //   - Logs: <internal files>/recomp.log (launcher "Baca Log Terakhir" membaca ini)
 //   - Clean room: tidak ada path aset hard-code. asset_dir/asset_uri dibaca dari
-//     settings.ini (ditulis MainActivity) -> engine mencari .btex/.bsm/.dll/...
+//     settings.ini (ditulis MainActivity) -> engine mencari .bstex/.bsm/.dll/...
 //     di folder pilihan user, bukan di folder internal aplikasi.
 //   - Full game build (gen/recompiled_part*.cpp hadir, gitignored): mem-boot
 //     rc::Cpu di thread worker. Scaffold tetap tidak menyertakan konten game.
@@ -138,13 +138,13 @@ static AssetCensus scan_assets(const char* root) {
         std::string ext = e.path().extension().string();
         for (auto& ch : ext) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
         c.total++;
-        // SCANNER_DEBUG: HANYA cetak jika ekstensi .btex atau .png
-        if (ext == ".btex" || ext == ".png") {
+        // SCANNER_DEBUG: HANYA cetak jika ekstensi .bstex atau .png
+        if (ext == ".bstex" || ext == ".png") {
             __android_log_print(ANDROID_LOG_DEBUG, "SCANNER_DEBUG", "FILE GAMBAR DITEMUKAN: %s", e.path().c_str());
             ui::overlay_logf("SCANNER_DEBUG: FILE GAMBAR DITEMUKAN: %s", e.path().c_str());
         }
         unique_exts.insert(ext);
-        if      (ext == ".btex")  { c.btex++; __android_log_print(ANDROID_LOG_ERROR, "BTEK_DEBUG", "Mencoba buka btex: %s", e.path().c_str()); ui::overlay_logf("BTEK_DEBUG: Mencoba buka btex: %s", e.path().c_str()); }
+        if      (ext == ".bstex")  { c.btex++; __android_log_print(ANDROID_LOG_DEBUG, "LOADER_DEBUG", "Berhasil memuat tekstur: %s", e.path().c_str()); ui::overlay_logf("LOADER_DEBUG: Berhasil memuat tekstur: %s", e.path().c_str()); }
         else if (ext == ".bsm")   c.bsm++;
         else if (ext == ".bsanim" || ext == ".bssceneanim") c.bsanim++;
         else if (ext == ".xvag")  c.xvag++;
@@ -442,8 +442,8 @@ void render_loop(AppState* s) {
 
         // Check if textures are available before drawing
         if (g_btex_count == 0) {
-            __android_log_print(ANDROID_LOG_WARN, "RENDER_DEBUG", "Skip draw: Tidak ada tekstur (btex=0)");
-            ui::overlay_logf("RENDER_DEBUG: Skip draw: Tidak ada tekstur (btex=0)");
+            __android_log_print(ANDROID_LOG_WARN, "RENDER_DEBUG", "Skip draw: Tidak ada tekstur (btex=0 / .bstex=0)");
+            ui::overlay_logf("RENDER_DEBUG: Skip draw: Tidak ada tekstur (btex=0 / .bstex=0)");
         }
 
         // Normal clear (no red flicker - smoke test moved to on_cmd, runs once)

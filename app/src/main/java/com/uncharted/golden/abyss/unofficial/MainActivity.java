@@ -304,7 +304,7 @@ public class MainActivity extends Activity {
                 int dot = name.lastIndexOf('.');
                 String ext = (dot >= 0) ? name.substring(dot) : "";
                 switch (ext) {
-                    case ".btex": c[1]++; break;
+                    case ".bstex": c[1]++; break;
                     case ".bsm": c[2]++; break;
                     case ".bsanim": case ".bssceneanim": c[3]++; break;
                     case ".xvag": c[4]++; break;

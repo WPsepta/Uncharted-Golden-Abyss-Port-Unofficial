@@ -51,10 +51,10 @@ tools/gen_local.sh
 
 1. Install APK (lokal: `gradle assembleDebug`; atau artifact CI sebagai launcher saja).
 2. Di launcher, tekan **Pilih Folder Aset Game** dan arahkan ke folder dump aset
-   Anda (mis. folder berisi `.btex` / `.bsm` / `.xvag` hasil dump milik sendiri).
+   Anda (mis. folder berisi `.bstex` / `.bsm` / `.xvag` hasil dump milik sendiri).
 3. Launcher menyimpan pilihan itu (`settings.ini`), lalu tombol **MULAI GAME**
    aktif; engine (`android_main.cpp`) membaca `asset_dir` dari `settings.ini`
-   dan melakukan indeks aset (count `.xvag/.btex/.bsm/.bsanim/.hkx/...`) ke
+   dan melakukan indeks aset (count `.xvag/.bstex/.bsm/.bsanim/.hkx/...`) ke
    `recomp.log`.
 
 ## Launcher
