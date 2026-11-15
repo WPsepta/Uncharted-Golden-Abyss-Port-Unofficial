@@ -34,6 +34,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <set>
 #include <thread>
 #include <system_error>
 #include <signal.h>
@@ -128,6 +129,9 @@ static AssetCensus scan_assets(const char* root) {
         c.errors = 1;
         return c;
     }
+    int file_count = 0;
+    // Track unique extensions for debugging
+    std::set<std::string> unique_exts;
     for (; it != end; it.increment(ec)) {
         if (ec) { c.errors++; ec.clear(); continue; }
         const fs::directory_entry& e = *it;
@@ -135,6 +139,13 @@ static AssetCensus scan_assets(const char* root) {
         std::string ext = e.path().extension().string();
         for (auto& ch : ext) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
         c.total++;
+        // Log first 20 files found
+        if (file_count < 20) {
+            __android_log_print(ANDROID_LOG_DEBUG, "SCANNER_DEBUG", "File ditemukan: %s (ext=%s)", e.path().c_str(), ext.c_str());
+            ui::overlay_logf("SCANNER_DEBUG: File ditemukan: %s (ext=%s)", e.path().c_str(), ext.c_str());
+            file_count++;
+        }
+        unique_exts.insert(ext);
         if      (ext == ".btex")  { c.btex++; __android_log_print(ANDROID_LOG_ERROR, "BTEK_DEBUG", "Mencoba buka btex: %s", e.path().c_str()); ui::overlay_logf("BTEK_DEBUG: Mencoba buka btex: %s", e.path().c_str()); }
         else if (ext == ".bsm")   c.bsm++;
         else if (ext == ".bsanim" || ext == ".bssceneanim") c.bsanim++;
@@ -147,6 +158,13 @@ static AssetCensus scan_assets(const char* root) {
         else if (ext == ".csv")   c.csv++;
         else if (ext == ".dll")   c.dll++;
         else                      { c.other++; __android_log_print(ANDROID_LOG_DEBUG, "ASSET_DEBUG", "Ext: %s -> %s", ext.c_str(), e.path().filename().c_str()); }
+    }
+    // Log unique extensions found
+    __android_log_print(ANDROID_LOG_ERROR, "SCANNER_DEBUG", "=== EKSTENSI UNIK YANG DITEMUKAN ===");
+    ui::overlay_logf("SCANNER_DEBUG: === EKSTENSI UNIK YANG DITEMUKAN ===");
+    for (const auto& ext : unique_exts) {
+        __android_log_print(ANDROID_LOG_ERROR, "SCANNER_DEBUG", "  Ext: '%s'", ext.c_str());
+        ui::overlay_logf("SCANNER_DEBUG:   Ext: '%s'", ext.c_str());
     }
     __android_log_print(ANDROID_LOG_ERROR, "ASSET_DEBUG", "Scan selesai: total=%llu btex=%llu png=%llu errors=%llu",
                         (unsigned long long)c.total, (unsigned long long)c.btex,
