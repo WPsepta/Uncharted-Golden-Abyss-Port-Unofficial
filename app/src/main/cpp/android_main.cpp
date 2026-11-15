@@ -463,10 +463,20 @@ void render_loop(AppState* s) {
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         }
 
-        // GL error check after ImGui render
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            RENDERLOG("GL error after render: 0x%x", err);
+        // RENDER_DEBUG: TEPAT SETELAH draw call - query tekstur yang terikat
+        {
+            GLint current_texture_id = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &current_texture_id);
+            __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Frame drawn with texture ID: %d", current_texture_id);
+            ui::overlay_logf("RENDER_DEBUG: Frame drawn with texture ID: %d", current_texture_id);
+        }
+        // RENDER_DEBUG: glGetError TEPAT setelah draw call (error GPU Mali)
+        {
+            GLenum errDraw = glGetError();
+            if (errDraw != GL_NO_ERROR) {
+                __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "GL error after draw: 0x%x", errDraw);
+                ui::overlay_logf("RENDER_DEBUG: GL error after draw: 0x%x", errDraw);
+            }
         }
 
         // Draw call counting (placeholder: ImGui draw calls)
