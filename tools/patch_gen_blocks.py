@@ -167,7 +167,18 @@ FIXES = [
     c.r[0] = c.r[0] + 0xc0u;
     c.write32(c.r[13] + 0x104u, c.r[0]);
     c.r[14] = c.r[14] + 0x1u;
-    c.next_pc = 0x81389728u; return;""",
+    // Fast-forward: skip broken parser, clean up stack frame (0x140 bytes) and
+    // return to caller continuation instead of re-entering the loop.
+    c.r[13] = ((c.r[13]) + (0x140u));
+    c.r[0] = 0u;
+    c.next_pc = 0x81389778u; return;""",
+    ),
+    (
+        0x81386D94,
+        1,
+        "00 be",
+        """    // [GEN_FIX 0x81386d94] bkpt 0 -> no-op, continue (debug halt in original)
+    c.next_pc = 0x81386d96u; return;""",
     ),
 ]
 
