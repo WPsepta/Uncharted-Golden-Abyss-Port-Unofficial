@@ -168,6 +168,10 @@ uint32_t rc_dbg_hist_pc[16] = {0};
 uint32_t rc_dbg_hist_n = 0;   // jumlah entri valid (<=16)
 uint32_t rc_dbg_hist_i = 0;   // indeks tulis berikutnya
 
+// Caller (LR/return addr) terakhir untuk stub ARM tertentu (bantu cari game loop).
+uint32_t rc_dbg_stub_caller_81815464 = 0;
+uint32_t rc_dbg_stub_caller_81815494 = 0;
+
 void rc_dbg_clear(void) {
     rc_dbg_fault_addr = 0;
     rc_dbg_fault_pc = 0;

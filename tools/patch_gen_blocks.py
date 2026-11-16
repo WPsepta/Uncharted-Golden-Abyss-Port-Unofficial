@@ -253,18 +253,12 @@ FIXES = [
         c.next_pc = ret_pc;
 #if defined(__ANDROID__)
         if (c.next_pc == 0u) {
-            // Pseudo-return: paksa lanjut agar emulator tidak idle/halt.
-            // Target dipilih dari ret_pc valid pertama yang teramati (0x81386d94,
-            // blok bkpt->no-op, lanjut ke 0x81386d96) dan SP di-reset aman.
-            const uint32_t force_pc = 0x81386d94u;
-            const uint32_t force_sp = 0x8EFFFF00u;
-            c.r[13] = force_sp;
-            c.r[0] = 0u; c.r[1] = 0u; c.r[2] = 0u; c.r[3] = 0u;
-            c.next_pc = force_pc;
-            char msg[192];
+            // ret_pc==0: akhir thread/init. Jangan paksa ke 0x81386d94 (loop).
+            // Biarkan next_pc==0 -> runtime halt, android_main idle (emulator tetap hidup).
+            char msg[320];
             snprintf(msg, sizeof(msg),
-                "0x813897a6: ret_pc==0 -> FORCE PC ke 0x%08x sp=0x%08x (pseudo-thread, jangan idle)",
-                force_pc, force_sp);
+                "0x813897a6: ret_pc==0 (thread/init end) -> idle. stub_callers: 0x81815464_lr=0x%08x 0x81815494_lr=0x%08x",
+                rc_dbg_stub_caller_81815464, rc_dbg_stub_caller_81815494);
             __android_log_print(ANDROID_LOG_WARN, "HALT_DEBUG", "%s", msg);
             if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", msg);
         }
@@ -511,11 +505,12 @@ for _a in ARM_STUB_ADDRS:
     if _a in _LOG_STUBS:
         _log = (
             "#if defined(__ANDROID__)\n"
+            "    rc_dbg_stub_caller_%08x = c.r[14];\n"
             "    { static bool rc_stub_logged = false; if (!rc_stub_logged) { rc_stub_logged = true;\n"
-            "      char _sm[128]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%%08x dipanggil, tapi belum diimplementasi!\", 0x%08x);\n"
+            "      char _sm[160]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%%08x dipanggil (lr/ret=0x%%08x), tapi belum diimplementasi!\", 0x%08x, c.r[14]);\n"
             "      __android_log_print(ANDROID_LOG_WARN, \"STUB_CALL\", \"%%s\", _sm);\n"
             "      if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _sm); } }\n"
-            "#endif\n" % (_a,)
+            "#endif\n" % (_a, _a)
         )
     FIXES.append((
         _a, 0, "00 00 e0 e3 1e ff 2f e1",
@@ -624,6 +619,8 @@ def emit_fix_file(fixes) -> str:
         "    extern uint32_t rc_dbg_hist_pc[16];",
         "    extern uint32_t rc_dbg_hist_n;",
         "    extern uint32_t rc_dbg_hist_i;",
+        "    extern uint32_t rc_dbg_stub_caller_81815464;",
+        "    extern uint32_t rc_dbg_stub_caller_81815494;",
         "}",
         "",
         "namespace rc {",
