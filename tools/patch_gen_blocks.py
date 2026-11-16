@@ -180,6 +180,14 @@ FIXES = [
         """    // [GEN_FIX 0x81386d94] bkpt 0 -> no-op, continue (debug halt in original)
     c.next_pc = 0x81386d96u; return;""",
     ),
+    (
+        0x81815494,
+        0,
+        "00 00 e0 e3 1e ff 2f e1",
+        """    // [GEN_FIX 0x81815494] ARM stub: mvn r0,#0 ; bx lr  -> return -1
+    c.r[0] = 0xFFFFFFFFu;
+    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }""",
+    ),
 ]
 
 REGISTRY_BLOCK = """// [GEN_FIX_REGISTRY] Blok perbaikan manual (tools/patch_gen_blocks.py).

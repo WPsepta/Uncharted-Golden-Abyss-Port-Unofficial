@@ -53,7 +53,7 @@ BLOCK_MISS_NEW = """    if (!b) {
         // kembali ke LR. Tanpa ini guest berhenti di stub pertama dan penyebab
         // yang sebenarnya (lubang translator / instruksi NEON) tidak terlihat.
         if (rc_dbg_stub_missing && r[kRegLr] != 0) {
-            if (rc_dbg_stub_returns >= 10000u) {
+            if (rc_dbg_stub_returns >= 1000000u) {
                 RC_LOGE("batas %llu stub return tercapai di 0x%08x",
                         (unsigned long long)rc_dbg_stub_returns, next_pc);
                 return false;
