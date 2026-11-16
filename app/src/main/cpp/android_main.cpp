@@ -243,6 +243,7 @@ struct AppState {
     EGLContext context = EGL_NO_CONTEXT;
     std::atomic<bool> running{false};
     std::thread worker;
+    std::thread tick_thread;              // dedicated dummy/game-loop tick (idle setelah halt)
     char log_path[512] = "recomp.log";
     char ini_path[512] = "settings.ini";
     bool imgui_ready = false;
@@ -536,6 +537,145 @@ static void log_guest_fault(AppState* s, const char* where) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Dummy/game-loop tick — THREAD KHUSUS (anti ANR/busy-wait)
+// ---------------------------------------------------------------------------
+// Setelah module_start guest berhenti (ret_pc==0 / halt normal), game hanya
+// bisa "bernapas" jika sesuatu memanggil fungsi game-loop (area 0x813833cc)
+// dan stub grafis. Loop itu SENGAJA tidak berjalan di worker/main thread:
+//   - tidur 16 ms + yield setiap tick (ANR guard),
+//   - konteks CPU PENUH disimpan/di-restore mengelilingi SETIAP paksa
+//     pemanggilan (r0/lr/cpsr/next_pc dll. TIDAK tercemar),
+//   - thread TIDAK PERNAH berhenti selama s->running: kalau guest halt
+//     (next_pc==0 / ret_pc==0), PC dipaksa balik ke game-loop entry
+//     0x813833cc (area setelah 0x81383400).
+// Recovery fault (SIGSEGV) memakai thread_local sigjmp_buf milik thread ini.
+static constexpr uint32_t kDummyGameLoopEntry = 0x813833ccu;  // ARM prologue 0x813833cc
+
+struct GuestCtxBackup {
+    uint32_t r[16];
+    uint64_t d[32];
+    uint32_t cpsr;
+    uint32_t fpscr;
+    uint32_t next_pc;
+    uint32_t current_pc;
+    uint32_t thumb;
+    bool running;
+    bool faulted;
+};
+
+// thread_local: siglongjmp tidak mengubah storage thread_local static
+static thread_local GuestCtxBackup t_ctx_backup{};
+
+static void guest_ctx_save(rc::Cpu& c) {
+    GuestCtxBackup& g = t_ctx_backup;
+    for (int i = 0; i < 16; ++i) g.r[i] = c.r[i];
+    for (int i = 0; i < 32; ++i) g.d[i] = c.d[i];
+    g.cpsr = c.cpsr; g.fpscr = c.fpscr;
+    g.next_pc = c.next_pc; g.current_pc = c.current_pc;
+    g.thumb = c.thumb;
+    g.running = c.running; g.faulted = c.faulted;
+}
+
+static void guest_ctx_restore(rc::Cpu& c) {
+    const GuestCtxBackup& g = t_ctx_backup;
+    for (int i = 0; i < 16; ++i) c.r[i] = g.r[i];
+    for (int i = 0; i < 32; ++i) c.d[i] = g.d[i];
+    c.cpsr = g.cpsr; c.fpscr = g.fpscr;
+    c.next_pc = g.next_pc; c.current_pc = g.current_pc;
+    c.thumb = g.thumb;
+    c.running = g.running; c.faulted = g.faulted;
+}
+
+static void dummy_tick_thread(AppState* s) {
+    rc::Cpu& c = s->cpu;
+    sigjmp_buf jb;
+    t_guest_jmp = &jb;   // thread_local — khusus thread ini
+    volatile uint64_t tick = 0;
+    engine_logf("Dummy tick thread: mulai (tick 16 ms + save/restore ctx penuh).");
+    while (s->running.load()) {
+        guest_ctx_save(c);
+        volatile bool halted = false;
+        if (sigsetjmp(jb, 1) != 0) {
+            // Pulih dari SIGSEGV guest di thread ini — JANGAN bunuh aplikasi.
+            t_guest_armed = 0;
+            __android_log_print(ANDROID_LOG_ERROR, "CPU_FAULT",
+                "[TICK] Guest fault pulih di dummy tick thread: pc=0x%08x "
+                "blocks=%llu", c.current_pc, (unsigned long long)c.blocks_run);
+            ui::overlay_logf("CPU_FAULT: [TICK] Guest fault pulih (tick thread). "
+                             "pc=0x%08x blocks=%llu",
+                             c.current_pc, (unsigned long long)c.blocks_run);
+            log_guest_fault(s, "tick-signal");
+            halted = true;
+        } else {
+            t_guest_armed = 1;
+            // Paksa eksekusi fungsi game-loop asli (ARM, entry 0x813833cc).
+            for (int iter = 0; iter < 5 && s->running.load(); ++iter) {
+                c.running = true;
+                c.faulted = false;
+                c.next_pc = kDummyGameLoopEntry;
+                c.current_pc = kDummyGameLoopEntry;
+                c.thumb = 0u;
+                c.r[0] = 0u; c.r[1] = 0u; c.r[2] = 0u; c.r[3] = 0u;
+                c.r[4] = 0u;
+                c.r[13] = 0x8EFFFF00u;              // SP aman
+                c.r[14] = 0u;                       // LR=0 -> return ke 0
+                c.max_blocks = c.blocks_run + 20000ULL;
+                c.run();
+                if (c.faulted) {
+                    engine_logf("Dummy tick: fault iter=%d pc=0x%08x next=0x%08x.",
+                                iter, c.current_pc, c.next_pc);
+                    c.faulted = false;
+                    halted = true;
+                    break;
+                }
+            }
+            // Paksa panggil stub grafis setiap 5 tick.
+            if ((tick % 5u) == 0u) {
+                const uint32_t stubs[2] = {0x81815464u, 0x81815494u};
+                for (uint32_t addr : stubs) {
+                    c.running = true;
+                    c.faulted = false;
+                    c.next_pc = addr;
+                    c.current_pc = addr;
+                    c.thumb = 0u;
+                    c.r[13] = 0x8EFFFF00u;
+                    c.r[14] = 0u;
+                    c.max_blocks = c.blocks_run + 64ULL;
+                    c.run();
+                    if (c.faulted) c.faulted = false;
+                }
+            }
+            t_guest_armed = 0;
+            // Halts detection: ret_pc==0 / next_pc==0 / running==false
+            if (c.next_pc == 0u || !c.running) halted = true;
+        }
+        // Restore konteks penuh — r0/lr/cpsr kembali seperti semula.
+        guest_ctx_restore(c);
+        if (halted) {
+            // Jangan biarkan thread berhenti: paksa PC ke game-loop entry.
+            c.running = true;
+            c.faulted = false;
+            c.next_pc = kDummyGameLoopEntry;
+            c.current_pc = kDummyGameLoopEntry;
+            c.thumb = 0u;
+        }
+        if ((tick % 10u) == 0u) {
+            const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
+            engine_logf("Dummy tick heartbeat: tick=%llu blocks=%llu pc=0x%08x "
+                        "steps=%llu hist=%u", (unsigned long long)tick,
+                        (unsigned long long)c.blocks_run, c.current_pc,
+                        (unsigned long long)rc_dbg_step_total, n);
+        }
+        ++tick;
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        std::this_thread::yield();
+    }
+    t_guest_jmp = nullptr;
+    t_guest_armed = 0;
+    engine_logf("Dummy tick thread: berhenti (s->running=false).");
+}
+
 static void boot_guest_elf(AppState* s, const char* elf_path) {
     engine_logf("Memulai boot engine (rc_boot + rc_load_elf_data): %s", elf_path);
 
@@ -693,6 +833,11 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                     (unsigned long long)chunks,
                     (unsigned long long)s->cpu.blocks_run,
                     s->cpu.current_pc, (int)s->cpu.running, (int)s->cpu.faulted);
+        // ANR guard: chunk bisa panjang (kGuestBlocksPerChunk blok) — beri
+        // jeda kecil + yield antar chunk supaya UI/Android watch dog tetap
+        // mendapat CPU dan aplikasi tidak dianggap hang.
+        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
         if (s->cpu.faulted) {
             log_guest_fault(s, "faulted");
@@ -727,53 +872,19 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                 if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", hbuf);
             }
             // Jangan matikan emulator: idle loop agar UI tetap responsif.
-            // Dummy/game-loop tick: jalankan fungsi 0x813833cc berulang (kode asli yang
-            // memanggil stub 0x818156d4/0x81815464/0x81815494 di area 0x81383400) sebagai
-            // aktivitas render/logic, karena module_start sudah selesai (ret_pc==0).
-            engine_logf("Dummy tick loop: menjalankan 0x813833cc (area 0x81383400) + paksa stub grafis periodik (idle).");
-            auto call_stub = [&](uint32_t addr) {
-                s->cpu.running = true; s->cpu.faulted = false;
-                s->cpu.next_pc = addr; s->cpu.thumb = 0u;
-                s->cpu.r[13] = 0x8EFFFF00u; s->cpu.r[14] = 0u;
-                s->cpu.max_blocks = s->cpu.blocks_run + 64ULL;
-                s->cpu.run();
-                if (s->cpu.faulted) { s->cpu.faulted = false; }
-            };
-            uint32_t tick = 0;
-            while (s->running.load()) {
-                // Jalankan beberapa iterasi fungsi asli di area 0x81383400 (memanggil stub)
-                for (int iter = 0; iter < 5 && s->running.load(); ++iter) {
-                    s->cpu.running = true;
-                    s->cpu.faulted = false;
-                    s->cpu.next_pc = 0x813833ccu; // ARM entry: prologue, panggil stub, epilogue, return
-                    s->cpu.thumb = 0u;
-                    s->cpu.r[0] = 0u; s->cpu.r[1] = 0u; s->cpu.r[2] = 0u; s->cpu.r[3] = 0u;
-                    s->cpu.r[4] = 0u;
-                    s->cpu.r[13] = 0x8EFFFF00u;   // SP aman
-                    s->cpu.r[14] = 0u;            // LR=0 -> return ke 0 (selesai 1 iterasi)
-                    s->cpu.max_blocks = s->cpu.blocks_run + 20000ULL;
-                    s->cpu.run();
-                    if (s->cpu.faulted) {
-                        engine_logf("Dummy tick: fault iter=%d pc=0x%08x next=0x%08x.",
-                                    iter, s->cpu.current_pc, s->cpu.next_pc);
-                        s->cpu.faulted = false;
-                        break;
-                    }
-                }
-                // Paksa panggil stub grafis secara langsung setiap beberapa tick
-                if ((tick % 5u) == 0u) {
-                    call_stub(0x81815464u);
-                    call_stub(0x81815494u);
-                }
-                if ((tick % 10u) == 0u) {
-                    const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
-                    engine_logf("Dummy tick heartbeat: tick=%u blocks=%llu pc=0x%08x steps=%llu hist=%u",
-                                tick, (unsigned long long)s->cpu.blocks_run,
-                                s->cpu.current_pc, (unsigned long long)rc_dbg_step_total, n);
-                }
-                ++tick;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
+            // Dummy/game-loop tick pindah ke THREAD KHUSUS (dummy_tick_thread):
+            //   - tidur 16 ms + yield setiap tick (anti ANR/busy-wait),
+            //   - konteks CPU disimpan/restore penuh tiap paksa pemanggilan
+            //     (r0/lr/cpsr TIDAK jadi 0x00000000 di tick tinggi),
+            //   - kalau ret_pc==0 / next_pc==0 / running==false, PC dipaksa
+            //     balik ke game-loop entry 0x813833cc (thread tidak berhenti).
+            // Worker menunggu tick thread di sini; tick keluar saat
+            // s->running==false, SEBELUM rc::rc_shutdown() melepas guest memory.
+            engine_logf("Dummy tick: memulai thread khusus (0x813833cc + stub grafis periodik, 16 ms/tick).");
+            if (s->tick_thread.joinable()) s->tick_thread.join();
+            s->tick_thread = std::thread(dummy_tick_thread, s);
+            if (s->tick_thread.joinable()) s->tick_thread.join();
+            engine_logf("Dummy tick thread selesai — lanjut rc_shutdown.");
             break;
         }
         // chunk_limit -> lanjut chunk berikutnya.
@@ -840,6 +951,7 @@ void on_cmd(android_app* app, int32_t cmd) {
     case APP_CMD_TERM_WINDOW:
         s->running = false;
         if (s->worker.joinable()) s->worker.join();
+        if (s->tick_thread.joinable()) s->tick_thread.join();
         egl_shutdown(s);
         break;
     case APP_CMD_LOW_MEMORY:
