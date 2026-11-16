@@ -72,6 +72,8 @@ void rc_dbg_clear(void);
 #include <setjmp.h>
 #include <ucontext.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <sys/resource.h>
 
 #define LOG_TAG "uncharted"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -608,6 +610,26 @@ static void dummy_tick_thread(AppState* s) {
     rc::Cpu& c = s->cpu;
     sigjmp_buf jb;
     t_guest_jmp = &jb;   // thread_local — khusus thread ini
+    // ANR guard: turunkan prioritas thread ini (nice 10) supaya UI/main thread
+    // Android SELALU menang atas CPU; beri nama thread untuk cek via debugger.
+    setpriority(PRIO_PROCESS, gettid(), 10);
+    pthread_setname_np(pthread_self(), "guest-tick");
+    // Self-check: trampoline pointer wajib berada di guest window. Karena blok
+    // trampoline dieksekusi sebagai fungsi NATIVE C++ (di fix-table) dan bukan
+    // kode byte guest, TIDAK diperlukan peta RX terpisah — cukup satu window
+    // mmap guest yang sudah ada. Tulis/baca canary sebagai bukti mapped.
+    {
+        if (!c.in_range(kTickTrampoline, 4u)) {
+            engine_logf("FATAL: [TICK] trampoline 0x%08x di luar guest window!", kTickTrampoline);
+        } else {
+            c.write32(kTickTrampoline, 0xDEADBEEFu);
+            uint32_t back = c.read32(kTickTrampoline);
+            engine_logf("[TICK] trampoline 0x%08x mapped OK (self-check r/w=0x%08x, "
+                        "fix-block native)", kTickTrampoline, back);
+        }
+        engine_logf("[TICK] prioritas thread diturunkan (nice=10) — UI/main thread "
+                    "diprioritaskan Android.");
+    }
     volatile uint64_t tick = 0;
     engine_logf("Dummy tick thread: mulai (tick 16 ms + save/restore ctx penuh).");
     while (s->running.load()) {
@@ -687,7 +709,10 @@ static void dummy_tick_thread(AppState* s) {
             c.current_pc = kDummyGameLoopEntry;
             c.thumb = 0u;
         }
-        if ((tick % 10u) == 0u) {
+        // BATASI: heartbeat tiap 50 tick (~0,8 detik) — cukup membuktikan
+        // thread masih hidup tanpa membanjiri logcat/recomp.log (fopen/fflush
+        // tiap tick justru menekan I/O eMMC -> risiko ANR).
+        if ((tick % 50u) == 0u) {
             const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
             engine_logf("Dummy tick heartbeat: tick=%llu blocks=%llu pc=0x%08x "
                         "lr=0x%08x r0=0x%08x steps=%llu hist=%u",
