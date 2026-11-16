@@ -233,9 +233,11 @@ FIXES = [
         }
         // Dump trace blok terakhir jika tersedia
         {
+            extern "C" { extern uint64_t rc_dbg_step_total; }
             const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
             char tbuf[512]; size_t tp = 0;
-            tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp, "TRACE blok terakhir (%u):", n);
+            tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp,
+                "TRACE blok terakhir (%u, steps=%llu):", n, (unsigned long long)rc_dbg_step_total);
             for (uint32_t k = 0; k < n && tp + 12 < sizeof(tbuf); ++k) {
                 const uint32_t idx = (rc_dbg_hist_i + 16u - n + k) & 15u;
                 tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp, " 0x%08x", rc_dbg_hist_pc[idx]);
@@ -621,6 +623,7 @@ def emit_fix_file(fixes) -> str:
         "    extern uint32_t rc_dbg_hist_pc[16];",
         "    extern uint32_t rc_dbg_hist_n;",
         "    extern uint32_t rc_dbg_hist_i;",
+        "    extern uint64_t rc_dbg_step_total;",
         "    extern uint32_t rc_dbg_stub_caller_81815464;",
         "    extern uint32_t rc_dbg_stub_caller_81815494;",
         "}",

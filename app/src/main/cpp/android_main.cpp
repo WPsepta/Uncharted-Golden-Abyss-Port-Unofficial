@@ -727,26 +727,29 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                 if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", hbuf);
             }
             // Jangan matikan emulator: idle loop agar UI tetap responsif.
-            // Dummy tick: coba jalankan fungsi 0x81389768 berulang (setup frame sendiri,
-            // memanggil stub display-like 0x81815464/0x81815494 lalu return). Ini memberi
-            // "aktivitas" thread palsu saat module_start sudah selesai (ret_pc==0).
-            engine_logf("Dummy tick loop: mencoba memanggil 0x81389768 secara periodik (idle).");
+            // Dummy tick: panggil stub grafis 0x81815464 dan 0x81815494 secara periodik
+            // (return SCE_OK) sebagai "denyut" aktivitas, karena module_start sudah selesai.
+            engine_logf("Dummy tick loop: memanggil stub 0x81815464/0x81815494 secara periodik (idle).");
+            auto tick_stub = [&](uint32_t addr) {
+                s->cpu.running = true;
+                s->cpu.faulted = false;
+                s->cpu.next_pc = addr;
+                s->cpu.thumb = 0u;            // ARM stub
+                s->cpu.r[13] = 0x8EFFFF00u;   // SP aman
+                s->cpu.r[14] = 0u;            // LR=0 -> return ke 0 (halt setelah 1 stub)
+                s->cpu.max_blocks = s->cpu.blocks_run + 64ULL;
+                // jangan clear history agar trace tetap berguna
+                s->cpu.run();
+                if (s->cpu.faulted) {
+                    engine_logf("Dummy tick: fault saat stub 0x%08x pc=0x%08x.", addr, s->cpu.current_pc);
+                    s->cpu.faulted = false;
+                }
+            };
             uint32_t tick = 0;
             while (s->running.load()) {
                 if ((tick++ % 10u) == 0u) { // ~1 detik
-                    s->cpu.running = true;
-                    s->cpu.faulted = false;
-                    s->cpu.next_pc = 0x81389768u; // prologue: push {r4-r6,lr} + sub sp,0x200
-                    s->cpu.thumb = 1u;
-                    s->cpu.r[13] = 0x8EFFFF00u;   // SP aman
-                    s->cpu.r[14] = 0u;            // LR=0 -> return ke 0 (akan di-handle)
-                    s->cpu.max_blocks = s->cpu.blocks_run + 50000ULL;
-                    rc_dbg_clear();
-                    s->cpu.run();
-                    if (s->cpu.faulted) {
-                        engine_logf("Dummy tick: fault di pc=0x%08x (tick %u).", s->cpu.current_pc, tick);
-                        s->cpu.faulted = false; // coba lagi nanti
-                    }
+                    tick_stub(0x81815464u);
+                    tick_stub(0x81815494u);
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
