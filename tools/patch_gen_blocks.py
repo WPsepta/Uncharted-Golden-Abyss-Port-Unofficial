@@ -509,10 +509,10 @@ for _a in ARM_STUB_ADDRS:
         _log = (
             "#if defined(__ANDROID__)\n"
             "    rc_dbg_stub_caller_%08x = c.r[14];\n"
-            "    { static bool rc_stub_logged = false; if (!rc_stub_logged) { rc_stub_logged = true;\n"
-            "      char _sm[160]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%%08x dipanggil (lr/ret=0x%%08x), return SCE_OK(0)\", 0x%08x, c.r[14]);\n"
+            "    { static uint32_t rc_stub_log_n = 0; if (rc_stub_log_n < 5u || (rc_stub_log_n %% 500u) == 0u) {\n"
+            "      char _sm[180]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%%08x dipanggil (lr/ret=0x%%08x), return SCE_OK(0) [#%%u]\", 0x%08x, c.r[14], rc_stub_log_n);\n"
             "      __android_log_print(ANDROID_LOG_WARN, \"STUB_CALL\", \"%%s\", _sm);\n"
-            "      if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _sm); } }\n"
+            "      if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _sm); } ++rc_stub_log_n; }\n"
             "#endif\n" % (_a, _a)
         )
     FIXES.append((

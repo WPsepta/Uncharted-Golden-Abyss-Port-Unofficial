@@ -730,10 +730,18 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
             // Dummy/game-loop tick: jalankan fungsi 0x813833cc berulang (kode asli yang
             // memanggil stub 0x818156d4/0x81815464/0x81815494 di area 0x81383400) sebagai
             // aktivitas render/logic, karena module_start sudah selesai (ret_pc==0).
-            engine_logf("Dummy tick loop: menjalankan 0x813833cc (area 0x81383400/stub grafis) secara periodik (idle).");
+            engine_logf("Dummy tick loop: menjalankan 0x813833cc (area 0x81383400) + paksa stub grafis periodik (idle).");
+            auto call_stub = [&](uint32_t addr) {
+                s->cpu.running = true; s->cpu.faulted = false;
+                s->cpu.next_pc = addr; s->cpu.thumb = 0u;
+                s->cpu.r[13] = 0x8EFFFF00u; s->cpu.r[14] = 0u;
+                s->cpu.max_blocks = s->cpu.blocks_run + 64ULL;
+                s->cpu.run();
+                if (s->cpu.faulted) { s->cpu.faulted = false; }
+            };
             uint32_t tick = 0;
             while (s->running.load()) {
-                // Jalankan beberapa iterasi per tick agar game "berdetak"
+                // Jalankan beberapa iterasi fungsi asli di area 0x81383400 (memanggil stub)
                 for (int iter = 0; iter < 5 && s->running.load(); ++iter) {
                     s->cpu.running = true;
                     s->cpu.faulted = false;
@@ -744,7 +752,6 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                     s->cpu.r[13] = 0x8EFFFF00u;   // SP aman
                     s->cpu.r[14] = 0u;            // LR=0 -> return ke 0 (selesai 1 iterasi)
                     s->cpu.max_blocks = s->cpu.blocks_run + 20000ULL;
-                    // jangan clear history agar trace tetap berguna
                     s->cpu.run();
                     if (s->cpu.faulted) {
                         engine_logf("Dummy tick: fault iter=%d pc=0x%08x next=0x%08x.",
@@ -753,11 +760,18 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                         break;
                     }
                 }
-                if ((tick++ % 10u) == 0u) {
-                    engine_logf("Dummy tick heartbeat: tick=%u blocks=%llu pc=0x%08x steps=%llu",
-                                tick, (unsigned long long)s->cpu.blocks_run,
-                                s->cpu.current_pc, (unsigned long long)rc_dbg_step_total);
+                // Paksa panggil stub grafis secara langsung setiap beberapa tick
+                if ((tick % 5u) == 0u) {
+                    call_stub(0x81815464u);
+                    call_stub(0x81815494u);
                 }
+                if ((tick % 10u) == 0u) {
+                    const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
+                    engine_logf("Dummy tick heartbeat: tick=%u blocks=%llu pc=0x%08x steps=%llu hist=%u",
+                                tick, (unsigned long long)s->cpu.blocks_run,
+                                s->cpu.current_pc, (unsigned long long)rc_dbg_step_total, n);
+                }
+                ++tick;
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
             break;
