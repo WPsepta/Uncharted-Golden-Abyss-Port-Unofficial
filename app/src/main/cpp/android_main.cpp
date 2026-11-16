@@ -704,14 +704,27 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
         }
         const bool chunk_limit = (s->cpu.blocks_run >= s->cpu.max_blocks);
         if (!s->cpu.running && !chunk_limit) {
-            engine_logf("Guest halt normal (running=false) di pc=0x%08x.", s->cpu.current_pc);
+            engine_logf("Guest halt normal (running=false) di pc=0x%08x next=0x%08x. "
+                        "Emulator tetap hidup (idle) — menunggu/tidak mematikan proses.",
+                        s->cpu.current_pc, s->cpu.next_pc);
+            // Jangan matikan emulator: idle loop agar UI tetap responsif.
+            // (Jika ini akhir thread/init dengan ret target 0, belum ada game loop
+            //  yang diketahui untuk dilanjutkan secara aman.)
+            while (s->running.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
             break;
         }
         // chunk_limit -> lanjut chunk berikutnya.
     }
     t_guest_jmp = nullptr;
-    engine_logf("Boot loop selesai: total blocks=%llu. Melepas guest memory.",
-                (unsigned long long)s->cpu.blocks_run);
+    if (s->cpu.running || s->cpu.blocks_run > 0) {
+        engine_logf("Guest loop selesai: total blocks=%llu. Melepas guest memory.",
+                    (unsigned long long)s->cpu.blocks_run);
+    } else {
+        engine_logf("Boot loop selesai: total blocks=%llu. Melepas guest memory.",
+                    (unsigned long long)s->cpu.blocks_run);
+    }
     rc::rc_shutdown(s->cpu);
 }
 #endif  // RC_WITH_GAME_CODE
