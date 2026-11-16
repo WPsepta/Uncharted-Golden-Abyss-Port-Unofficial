@@ -198,11 +198,9 @@ FIXES = [
                 c.r[5], c.r[6]);
             __android_log_print(ANDROID_LOG_WARN, "HALT_DEBUG",
                 "[LOOP_BREAK] will exit loop body to 0x813897a6");
-            { extern "C" { typedef void (*rc_dbg_log_fn)(const char*, const char*); extern rc_dbg_log_fn rc_dbg_log_hook; }
-              if (rc_dbg_log_hook) {
+            if (rc_dbg_log_hook) {
                 char _lb[160]; snprintf(_lb, sizeof(_lb), "[LOOP_BREAK] 0x8138979e: forced exit after 5000 iters (r5=0x%08x r6=0x%08x)", c.r[5], c.r[6]);
                 rc_dbg_log_hook("ENGINE_DEBUG", _lb);
-              }
             }
 #endif
             c.next_pc = 0x813897a6u; return;
@@ -231,12 +229,10 @@ FIXES = [
                 c.read32(sp0 + 0x208u), c.r[14]);
             __android_log_print(ANDROID_LOG_DEBUG, "HALT_DEBUG", "%s", _hb);
             // juga ke recomp.log (tab Log) via hook jika tersedia
-            extern "C" { typedef void (*rc_dbg_log_fn)(const char*, const char*); extern rc_dbg_log_fn rc_dbg_log_hook; }
             if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", _hb);
         }
         // Dump trace blok terakhir jika tersedia
         {
-            extern "C" { extern uint32_t rc_dbg_hist_pc[16]; extern uint32_t rc_dbg_hist_n; extern uint32_t rc_dbg_hist_i; }
             const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
             char tbuf[512]; size_t tp = 0;
             tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp, "TRACE blok terakhir (%u):", n);
@@ -245,7 +241,6 @@ FIXES = [
                 tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp, " 0x%08x", rc_dbg_hist_pc[idx]);
             }
             __android_log_print(ANDROID_LOG_DEBUG, "HALT_DEBUG", "%s", tbuf);
-            extern "C" { typedef void (*rc_dbg_log_fn)(const char*, const char*); extern rc_dbg_log_fn rc_dbg_log_hook; }
             if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", tbuf);
         }
 #endif
@@ -260,7 +255,6 @@ FIXES = [
         if (c.next_pc == 0u) {
             const char* msg = "0x813897a6: return target is 0 (thread/init end) -> keep emulator alive (idle)";
             __android_log_print(ANDROID_LOG_WARN, "HALT_DEBUG", "%s", msg);
-            extern "C" { typedef void (*rc_dbg_log_fn)(const char*, const char*); extern rc_dbg_log_fn rc_dbg_log_hook; }
             if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", msg);
         }
 #endif
@@ -507,11 +501,10 @@ for _a in ARM_STUB_ADDRS:
         _log = (
             "#if defined(__ANDROID__)\n"
             "    { static bool rc_stub_logged = false; if (!rc_stub_logged) { rc_stub_logged = true;\n"
-            "      char _sm[128]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%08x dipanggil, tapi belum diimplementasi!\", 0x%08x);\n"
+            "      char _sm[128]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%%08x dipanggil, tapi belum diimplementasi!\", 0x%08x);\n"
             "      __android_log_print(ANDROID_LOG_WARN, \"STUB_CALL\", \"%%s\", _sm);\n"
-            "      { extern \"C\" { typedef void (*rc_dbg_log_fn)(const char*, const char*); extern rc_dbg_log_fn rc_dbg_log_hook; }\n"
-            "        if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _sm); } } }\n"
-            "#endif\n" % (_a, _a)
+            "      if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _sm); } }\n"
+            "#endif\n" % (_a,)
         )
     FIXES.append((
         _a, 0, "00 00 e0 e3 1e ff 2f e1",
@@ -613,6 +606,14 @@ def emit_fix_file(fixes) -> str:
         "#if defined(__ANDROID__)",
         "#include <android/log.h>",
         "#endif",
+        "",
+        'extern "C" {',
+        "    typedef void (*rc_dbg_log_fn)(const char*, const char*);",
+        "    extern rc_dbg_log_fn rc_dbg_log_hook;",
+        "    extern uint32_t rc_dbg_hist_pc[16];",
+        "    extern uint32_t rc_dbg_hist_n;",
+        "    extern uint32_t rc_dbg_hist_i;",
+        "}",
         "",
         "namespace rc {",
         "",
