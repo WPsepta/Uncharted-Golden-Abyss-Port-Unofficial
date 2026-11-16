@@ -37,6 +37,7 @@ HLE_MARK = "[HLE_FALLBACK]"
 LOADER_MARK = "[LOADER_PHDR_FIX]"
 PROBE_MARK = "[ENTRY_PROBE]"
 BLOCK_MISS_MARK = "[BLOCK_MISS]"
+STEP_HIST_MARK = "[STEP_HIST]"
 
 BLOCK_MISS_OLD = """    if (!b) {
         RC_LOGE("no recompiled block at 0x%08x (from 0x%08x)", next_pc, current_pc);
@@ -68,6 +69,50 @@ BLOCK_MISS_NEW = """    if (!b) {
         }
         return false;
     }"""
+
+STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
+    // [STEP_HIST] rekam PC blok yang akan dieksekusi (trace sebelum halt/fault).
+    rc_dbg_hist_pc[rc_dbg_hist_i] = next_pc;
+    rc_dbg_hist_i = (rc_dbg_hist_i + 1u) & 15u;
+    if (rc_dbg_hist_n < 16u) ++rc_dbg_hist_n;
+
+    if (max_blocks && blocks_run >= max_blocks) { running = false; return false; }
+    const BlockDesc* b = find_block(next_pc);
+    if (!b) {
+        // [BLOCK_MISS] catat target yang tidak punya blok rekompilasi supaya
+        // android_main.cpp bisa melaporkannya sebagai penyebab berhenti.
+        rc_dbg_missing_pc = next_pc;
+        rc_dbg_missing_from = current_pc;
+        RC_LOGE("no recompiled block at 0x%08x (from 0x%08x)", next_pc, current_pc);
+        // Mode debug: anggap fungsi tanpa blok sebagai stub yang return -1 lalu
+        // kembali ke LR. Tanpa ini guest berhenti di stub pertama dan penyebab
+        // yang sebenarnya (lubang translator / instruksi NEON) tidak terlihat.
+        if (rc_dbg_stub_missing && r[kRegLr] != 0) {
+            if (rc_dbg_stub_returns >= 1000000u) {
+                RC_LOGE("batas %llu stub return tercapai di 0x%08x",
+                        (unsigned long long)rc_dbg_stub_returns, next_pc);
+                return false;
+            }
+            ++rc_dbg_stub_returns;
+            r[0] = 0xFFFFFFFFu;
+            next_pc = r[kRegLr] & ~1u;
+            thumb = r[kRegLr] & 1u;
+            cpsr = (cpsr & ~kFlagT) | (thumb ? kFlagT : 0);
+            ++blocks_run;
+            return true;
+        }
+        return false;
+    }
+    current_pc = b->addr;
+    thumb = b->thumb;
+    cpsr = (cpsr & ~kFlagT) | (thumb ? kFlagT : 0);
+    next_pc = b->addr;
+    b->fn(*this);
+    ++blocks_run;
+    if (faulted) return false;
+    if (next_pc == 0) { running = false; return false; }
+    return true;
+}"""
 
 LOADER_OLD = """    uint32_t phoff, phentsize, phnum;
     std::memcpy(&phoff, eh + 28, 4);
@@ -117,6 +162,11 @@ uint64_t rc_dbg_stub_returns = 0;     // jumlah stub return (tidak di-reset per 
 // RC_UNIMPL juga masuk ke recomp.log (tab Log), bukan hanya logcat.
 typedef void (*rc_dbg_log_fn)(const char* tag, const char* msg);
 rc_dbg_log_fn rc_dbg_log_hook = nullptr;
+
+// [STEP_HIST] ring buffer PC blok terakhir (untuk trace sebelum halt/fault).
+uint32_t rc_dbg_hist_pc[16] = {0};
+uint32_t rc_dbg_hist_n = 0;   // jumlah entri valid (<=16)
+uint32_t rc_dbg_hist_i = 0;   // indeks tulis berikutnya
 
 void rc_dbg_clear(void) {
     rc_dbg_fault_addr = 0;
@@ -216,14 +266,15 @@ HLE_BODY = r'''int rc_hle_dispatch(Cpu& cpu, uint32_t nid) {
 #endif
 
     // Salin ke recomp.log (tab Log) lewat hook host, bukan hanya logcat.
-    if (first_time && rc_dbg_log_hook) {
+    if (rc_dbg_log_hook && (first_time || hle_missing_total == 1 || (hle_missing_total % 1000) == 0)) {
         char line[320];
         std::snprintf(line, sizeof(line),
             "import belum dipetakan: fungsi=\"unmapped\" (NID 0x%08X) "
             "pemanggil_pc=0x%08X r0=0x%08X r1=0x%08X r2=0x%08X r3=0x%08X "
-            "-> return 0",
+            "-> return 0 (total=%llu unik=%zu)",
             nid, cpu.current_pc,
-            cpu.r[0], cpu.r[1], cpu.r[2], cpu.r[3]);
+            cpu.r[0], cpu.r[1], cpu.r[2], cpu.r[3],
+            (unsigned long long)hle_missing_total, hle_seen_count);
         rc_dbg_log_hook((hle_missing_total == 1) ? "HLE_MISSING[PERTAMA]"
                                                  : "HLE_MISSING", line);
     }
@@ -361,13 +412,22 @@ def main(argv: list[str]) -> int:
         text = text.replace(BLOCK_MISS_OLD, BLOCK_MISS_NEW, 1)
         changed.append("block_miss")
 
+    # 8) step_block(): rekam history PC blok (trace sebelum halt/fault).
+    if STEP_HIST_MARK not in text:
+        sig = re.compile(r"bool\s+Cpu::step_block\s*\(\s*\)\s*\{")
+        text, done = replace_span(text, sig, STEP_BLOCK_BODY, "Cpu::step_block()")
+        if not done:
+            print(f"error: Cpu::step_block() tidak ditemukan di {path}", file=sys.stderr)
+            return 1
+        changed.append("step_hist")
+
     if not changed:
         print(f"OK: {path} sudah dipatch penuh — tidak diubah.")
         return 0
 
     # Sanity check: semua penanda harus ada setelah patch.
     missing = [m for m in (GLOBALS_MARK, FAULT_MARK, UNIMPL_MARK, HLE_MARK,
-                           LOADER_MARK, PROBE_MARK, BLOCK_MISS_MARK)
+                           LOADER_MARK, PROBE_MARK, BLOCK_MISS_MARK, STEP_HIST_MARK)
                if m not in text]
     if missing:
         print(f"error: penanda hilang setelah patch: {missing}", file=sys.stderr)
