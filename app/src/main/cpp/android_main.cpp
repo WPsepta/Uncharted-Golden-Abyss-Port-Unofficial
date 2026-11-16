@@ -14,6 +14,23 @@
 
 #if RC_WITH_GAME_CODE
 #include "recomp.h"
+
+// Telemetri fault dari recomp.cpp. Didefinisikan oleh tools/patch_hle_fallback.py
+// (blok [FAULT_DBG_GLOBALS]) dengan C linkage; deklarasinya harus sama persis.
+extern "C" {
+extern uint32_t rc_dbg_fault_addr;
+extern uint32_t rc_dbg_fault_pc;
+extern uint32_t rc_dbg_fault_write;
+extern uint32_t rc_dbg_fault_seen;
+extern uint32_t rc_dbg_unimpl_pc;
+extern const char* rc_dbg_unimpl_what;
+extern uint32_t rc_dbg_last_pc;
+extern uint32_t rc_dbg_last_nid;
+extern uint64_t rc_dbg_hle_calls;
+typedef void (*rc_dbg_log_fn)(const char* tag, const char* msg);
+extern rc_dbg_log_fn rc_dbg_log_hook;
+void rc_dbg_clear(void);
+}
 #endif
 
 #include <android/native_activity.h>
@@ -411,8 +428,88 @@ static void engine_logf(const char* fmt, ...) {
     ui::overlay_logf("ENGINE_DEBUG: %s", buf);
 }
 
+// Log fault guest: logcat tag GUEST_FAULT + baris "GUEST_FAULT: ..." di tab Log.
+static void fault_logf(const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    char buf[1024];
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    __android_log_print(ANDROID_LOG_ERROR, "GUEST_FAULT", "%s", buf);
+    ui::overlay_logf("GUEST_FAULT: %s", buf);
+}
+
 static bool ini_truthy(const std::string& v) {
     return v == "1" || v == "true" || v == "TRUE" || v == "yes" || v == "on";
+}
+
+// Cetak state CPU + penyebab fault. Dipanggil tepat setelah run() berhenti
+// karena faulted, atau setelah siglongjmp memulihkan sinyal dari guest.
+// Tujuan: membedakan (a) instruksi belum diterjemahkan (RC_UNIMPL),
+// (b) akses pointer/alamat memori tidak valid, (c) HLE import yang hilang.
+static void log_guest_fault(AppState* s, const char* where) {
+    rc::Cpu& c = s->cpu;
+    const uint32_t pc = c.current_pc;
+
+    fault_logf("[%s]: pc=0x%08x next=0x%08x thumb=%d blocks=%llu",
+                where, pc, c.next_pc, (int)c.thumb,
+                (unsigned long long)c.blocks_run);
+    fault_logf("r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x",
+                c.r[0], c.r[1], c.r[2], c.r[3]);
+    fault_logf("r4=0x%08x r5=0x%08x r6=0x%08x r7=0x%08x",
+                c.r[4], c.r[5], c.r[6], c.r[7]);
+    fault_logf("r8=0x%08x r9=0x%08x r10=0x%08x r11=0x%08x",
+                c.r[8], c.r[9], c.r[10], c.r[11]);
+    fault_logf("r12=0x%08x sp=0x%08x lr=0x%08x r15=0x%08x cpsr=0x%08x",
+                c.r[12], c.r[13], c.r[14], c.r[15], c.cpsr);
+
+    // Instruksi mentah di pc (blok yang sedang dieksekusi saat fault).
+    uint8_t raw[8] = {0};
+    if (c.in_range(pc, sizeof(raw))) {
+        std::memcpy(raw, c.mem + (pc - rc::kMemBase), sizeof(raw));
+        fault_logf("byte @pc 0x%08x = %02x %02x %02x %02x %02x %02x %02x %02x",
+                    pc, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7]);
+    } else {
+        fault_logf("byte @pc 0x%08x TIDAK BISA DIBACA "
+                    "(pc di luar guest window).", pc);
+    }
+
+    if (rc_dbg_unimpl_pc != 0) {
+        const char* what = rc_dbg_unimpl_what ? rc_dbg_unimpl_what : "?";
+        if (rc_dbg_unimpl_pc != pc && c.in_range(rc_dbg_unimpl_pc, sizeof(raw))) {
+            std::memcpy(raw, c.mem + (rc_dbg_unimpl_pc - rc::kMemBase), sizeof(raw));
+            fault_logf("penyebab=RC_UNIMPL @0x%08x \"%s\" "
+                        "byte=%02x %02x %02x %02x %02x %02x %02x %02x",
+                        rc_dbg_unimpl_pc, what,
+                        raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7]);
+        } else {
+            fault_logf("penyebab=RC_UNIMPL @0x%08x \"%s\"",
+                        rc_dbg_unimpl_pc, what);
+        }
+        fault_logf("KESIMPULAN: BUKAN HLE, BUKAN pointer NULL — "
+                    "translator tidak punya blok valid untuk instruksi ini.");
+    } else if (rc_dbg_fault_seen) {
+        const uint32_t a = rc_dbg_fault_addr;
+        fault_logf("penyebab=memory %s addr=0x%08x (pc=0x%08x)%s",
+                    rc_dbg_fault_write ? "WRITE" : "READ",
+                    a, rc_dbg_fault_pc,
+                    a == 0 ? " -> NULL POINTER!" : "");
+        fault_logf("KESIMPULAN: pointer/alamat memori tidak valid "
+                    "(bukan instruksi belum diterjemahkan).");
+    } else {
+        fault_logf("penyebab=tidak tercatat (kemungkinan sinyal CPU "
+                    "native; lihat CPU_FAULT).");
+    }
+
+    if (rc_dbg_hle_calls > 0) {
+        fault_logf("HLE terakhir: NID=0x%08x pemanggil_pc=0x%08x "
+                    "total_panggilan=%llu",
+                    rc_dbg_last_nid, rc_dbg_last_pc,
+                    (unsigned long long)rc_dbg_hle_calls);
+    } else {
+        fault_logf("HLE belum pernah dipanggil — rc_hle_dispatch "
+                    "tidak dieksekusi sama sekali.");
+    }
 }
 
 static void boot_guest_elf(AppState* s, const char* elf_path) {
@@ -487,6 +584,13 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
     engine_logf("ELF data ter-load. Entry pc=0x%08x thumb=%d. Mulai eksekusi guest...",
                 s->cpu.next_pc, (int)s->cpu.thumb);
 
+    // HLE_MISSING / RC_UNIMPL dari recomp.cpp juga masuk ke tab Log
+    // (recomp.log), bukan hanya logcat.
+    rc_dbg_log_hook = [](const char* tag, const char* msg) {
+        __android_log_print(ANDROID_LOG_ERROR, tag, "%s", msg);
+        ui::overlay_logf("%s: %s", tag, msg);
+    };
+
     sigjmp_buf jb;
     t_guest_jmp = &jb;
     uint64_t chunks = 0;
@@ -504,8 +608,10 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
             ui::overlay_logf("CPU_FAULT: Guest fault ter-recover (app TIDAK crash). "
                              "pc=0x%08x blocks=%llu",
                              s->cpu.current_pc, (unsigned long long)s->cpu.blocks_run);
+            log_guest_fault(s, "signal");
             break;
         }
+        rc_dbg_clear();
         t_guest_armed = 1;
         s->cpu.run();
         t_guest_armed = 0;
@@ -517,7 +623,9 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                     s->cpu.current_pc, (int)s->cpu.running, (int)s->cpu.faulted);
 
         if (s->cpu.faulted) {
-            engine_logf("Guest berhenti karena fault internal (memori di luar range).");
+            log_guest_fault(s, "faulted");
+            engine_logf("Guest berhenti: fault internal di pc=0x%08x — detail di "
+                        "GUEST_FAULT di atas.", s->cpu.current_pc);
             break;
         }
         if (s->cpu.blocks_run == before) {
@@ -618,9 +726,11 @@ void render_loop(AppState* s) {
         float dt = std::chrono::duration<float>(now - last).count();
         last = now;
 
-        // CANARY LOG: Check if render loop is running
-        __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Loop iteration: %d", frameCount);
-        ui::overlay_logf("RENDER_DEBUG: Loop iteration: %d", frameCount);
+        // CANARY LOG: hanya frame pertama (hindari spam ke tab Log).
+        if (frameCount == 0) {
+            __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Loop iteration: %d", frameCount);
+            ui::overlay_logf("RENDER_DEBUG: Loop iteration: %d", frameCount);
+        }
 
         // Log: Entry render loop pertama
         if (firstFrame) {
@@ -638,21 +748,23 @@ void render_loop(AppState* s) {
             }
         }
 
-        // Rendering debugging: shader compile status (per-frame query, light)
+        // Rendering debugging: shader compile status (query ringan, logcat saja)
         GLint prog = 0;
         glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
-        RENDERLOG("Render: GL_CURRENT_PROGRAM = %d", prog);
+        if (frameCount == 0) RENDERLOG("Render: GL_CURRENT_PROGRAM = %d", prog);
 
         // Rendering debugging: texture status (query bound texture, no creation)
         GLint activeTex = 0;
         glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTex);
-        RENDERLOG("Render: active texture unit = %x", activeTex);
         // Query if a texture is currently bound - use 0 as default
         GLboolean hasTex = glIsTexture(0) ? GL_TRUE : GL_FALSE; // glIsTexture(0) returns GL_FALSE
-        RENDERLOG("Render: glIsTexture(0) = %d (0 = tidak ada bound texture)", hasTex);
+        if (frameCount == 0) {
+            RENDERLOG("Render: active texture unit = %x", activeTex);
+            RENDERLOG("Render: glIsTexture(0) = %d (0 = tidak ada bound texture)", hasTex);
+        }
 
         // Check if textures are available before drawing
-        if (g_btex_count == 0) {
+        if (g_btex_count == 0 && frameCount == 0) {
             __android_log_print(ANDROID_LOG_WARN, "RENDER_DEBUG", "Skip draw: Tidak ada tekstur (btex=0 / .bstex=0)");
             ui::overlay_logf("RENDER_DEBUG: Skip draw: Tidak ada tekstur (btex=0 / .bstex=0)");
         }
@@ -674,17 +786,18 @@ void render_loop(AppState* s) {
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         }
 
-        // RENDER_DEBUG: TEPAT SETELAH draw call - query tekstur yang terikat
+        // RENDER_DEBUG: TEPAT SETELAH draw call - query tekstur yang terikat.
+        // Hanya frame pertama: log per-frame membuat tab Log penuh dan menutupi
+        // ENGINE_DEBUG / HLE_MISSING / GUEST_FAULT yang justru ingin dibaca.
         {
             GLint current_texture_id = 0;
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &current_texture_id);
-            // Throttle: cetak hanya jika tekstur terikat ATAU setiap 60 frame (cegah spam)
-            if (current_texture_id != 0 || frameCount % 60 == 0) {
+            if (frameCount == 0) {
                 __android_log_print(ANDROID_LOG_DEBUG, "RENDER_DEBUG", "Frame drawn with texture ID: %d", current_texture_id);
                 ui::overlay_logf("RENDER_DEBUG: Frame drawn with texture ID: %d", current_texture_id);
             }
             // DRAW_DEBUG: draw utama di build ini adalah path ImGui (engine belum pernah memanggil GL)
-            if (s->imgui_ready && (current_texture_id != 0 || frameCount % 60 == 0)) {
+            if (s->imgui_ready && frameCount == 0) {
                 const int lists = ImGui::GetDrawData()->CmdListsCount;
                 __android_log_print(ANDROID_LOG_DEBUG, "DRAW_DEBUG", "Engine meminta draw: CmdLists=%d, Texture ID: %d", lists, current_texture_id);
                 ui::overlay_logf("DRAW_DEBUG: Engine meminta draw: CmdLists=%d, Texture ID: %d", lists, current_texture_id);
@@ -701,7 +814,7 @@ void render_loop(AppState* s) {
 
         // Draw call counting (placeholder: ImGui draw calls)
         int drawCount = ImGui::GetDrawData()->CmdListsCount;
-        RENDERLOG("Render: draw calls this frame = %d", drawCount);
+        if (frameCount == 0) RENDERLOG("Render: draw calls this frame = %d", drawCount);
 
         frameCount++;
         if (frameCount % 60 == 0) {

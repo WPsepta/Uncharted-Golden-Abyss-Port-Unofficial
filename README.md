@@ -94,10 +94,26 @@ thread worker memanggil:
    `ENGINE_DEBUG: guest chunk ... blocks=... pc=...`.
 
 Setiap import PS Vita yang belum dipetakan dicetak sebagai
-`HLE_MISSING: Unmapped HLE import: ... (NID: 0x........)` lalu **return 0**
-(tidak crash). Fault guest (SIGSEGV/SIGBUS/SIGILL/SIGFPE) di thread boot
-dipulihkan lewat `siglongjmp` — aplikasi tetap hidup dan render loop terus
-berjalan.
+`HLE_MISSING: ... (NID: 0x........) pemanggil_pc=0x........ r0..r3=...` lalu
+**return 0** (tidak crash). Entri pertama diberi tag `HLE_MISSING[PERTAMA]`
+supaya fungsi sistem pertama yang dipanggil game mudah dikenali. Pesan ini
+masuk ke logcat **dan** tab Log (`recomp.log`).
+
+Saat guest berhenti karena fault, blok `GUEST_FAULT` mencetak penyebab yang
+sebenarnya, bukan sekadar "memori di luar range":
+
+- register `r0..r12`, `sp`, `lr`, `cpsr`, `next_pc`, jumlah blok,
+- 8 byte instruksi mentah di pc,
+- `penyebab=RC_UNIMPL @0x... "invalid"` bila translator tidak punya blok valid
+  (bukan HLE, bukan pointer NULL), atau
+- `penyebab=memory READ/WRITE addr=0x...` (ditandai `NULL POINTER!` bila
+  alamatnya 0), atau
+- status HLE terakhir: NID + pemanggil pc + total panggilan.
+
+Fault guest (SIGSEGV/SIGBUS/SIGILL/SIGFPE) di thread boot dipulihkan lewat
+`siglongjmp` — aplikasi tetap hidup dan render loop terus berjalan. Log
+per-frame (`Frame drawn with texture ID`, `DRAW_DEBUG`, `Loop iteration`)
+sekarang hanya dicetak sekali di frame pertama agar tab Log tidak penuh.
 
 ELF game **tidak pernah** dibundel ke APK/repo; file itu tetap di perangkat
 Anda. Tanpa ELF, flag ini hanya mencetak error dan boot dilewati.

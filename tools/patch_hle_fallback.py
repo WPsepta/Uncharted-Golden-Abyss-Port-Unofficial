@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""patch_hle_fallback.py — amankan rc_hle_dispatch() di recomp.cpp.
+"""patch_hle_fallback.py — amankan rc_hle_dispatch() + tambah telemetri fault.
 
 LATAR BELAKANG
   recomp.cpp adalah kode game hasil rekompilasi (masuk ke build dari
@@ -7,17 +7,21 @@ LATAR BELAKANG
   "forbidden-files" di CI). Fungsi rc_hle_dispatch() di sana adalah satu-
   satunya pintu masuk semua import PS Vita (svc #0, NID di r12).
 
-  Versi asli hanya mencetak "unmapped HLE import nid=..." lalu return -1.
-  Untuk eksperimen boot ELF, kita ingin:
-    1. tidak pernah crash karena NID tak dikenal,
-    2. log HLE_MISSING yang jelas (NID, pc pemanggil, total),
-    3. return 0 (nilai default) supaya eksekusi guest bisa lanjut.
+  Skrip ini melakukan EMPAT patch independen (masing-masing idempotent):
+
+    [FAULT_DBG_GLOBALS]  variabel telemetri fault (dibaca android_main.cpp
+                         lewat extern "C") + rc_dbg_clear().
+    [FAULT_DBG_FAULT]    fault() mencatat alamat/arah/pc akses memori gagal.
+    [FAULT_DBG_UNIMPL]   rc_unimplemented() mencatat pc + deskripsi instruksi
+                         yang belum diterjemahkan (penyebab RC_UNIMPL).
+    [HLE_FALLBACK]       rc_hle_dispatch() tidak crash, mencetak HLE_MISSING
+                         berisi NID + pc pemanggil + r0..r3, lalu return 0.
 
 PEMAKAIAN
   python3 tools/patch_hle_fallback.py app/src/main/cpp/recomp.cpp
 
-  Aman dijalankan berulang (idempotent): jika sudah ada "HLE_MISSING",
-  skrip hanya melaporkan bahwa file sudah dipatch.
+  Aman dijalankan berulang: setiap bagian yang sudah ada ditandai dan
+  dilewati, jadi patch baru bisa ditambahkan tanpa merusak yang lama.
 """
 
 from __future__ import annotations
@@ -26,13 +30,76 @@ import re
 import sys
 from pathlib import Path
 
-SIGNATURE = re.compile(
-    r"int\s+rc_hle_dispatch\s*\(\s*Cpu\s*&\s*cpu\s*,\s*uint32_t\s+nid\s*\)\s*\{"
-)
+GLOBALS_MARK = "[FAULT_DBG_GLOBALS]"
+FAULT_MARK = "[FAULT_DBG_FAULT]"
+UNIMPL_MARK = "[FAULT_DBG_UNIMPL]"
+HLE_MARK = "[HLE_FALLBACK]"
 
-PATCHED_BODY = r'''int rc_hle_dispatch(Cpu& cpu, uint32_t nid) {
+GLOBALS_BLOCK = r'''
+// [FAULT_DBG_GLOBALS] Telemetri fault guest. Ditambahkan otomatis oleh
+// tools/patch_hle_fallback.py. android_main.cpp membacanya lewat extern "C"
+// supaya log GUEST_FAULT bisa menyebutkan penyebab yang sebenarnya.
+extern "C" {
+uint32_t rc_dbg_fault_addr = 0;       // alamat akses memori yang gagal
+uint32_t rc_dbg_fault_pc = 0;         // pc saat akses memori gagal
+uint32_t rc_dbg_fault_write = 0;      // 1 = write, 0 = read
+uint32_t rc_dbg_fault_seen = 0;       // 1 = fault() pernah dipanggil
+uint32_t rc_dbg_unimpl_pc = 0;        // pc instruksi RC_UNIMPL
+const char* rc_dbg_unimpl_what = "";  // deskripsi RC_UNIMPL ("invalid", ...)
+uint32_t rc_dbg_last_pc = 0;          // pc pemanggil HLE terakhir
+uint32_t rc_dbg_last_nid = 0;         // NID HLE terakhir
+uint64_t rc_dbg_hle_calls = 0;        // total panggilan ke rc_hle_dispatch
+
+// Hook log opsional: diisi android_main.cpp supaya pesan HLE_MISSING /
+// RC_UNIMPL juga masuk ke recomp.log (tab Log), bukan hanya logcat.
+typedef void (*rc_dbg_log_fn)(const char* tag, const char* msg);
+rc_dbg_log_fn rc_dbg_log_hook = nullptr;
+
+void rc_dbg_clear(void) {
+    rc_dbg_fault_addr = 0;
+    rc_dbg_fault_pc = 0;
+    rc_dbg_fault_write = 0;
+    rc_dbg_fault_seen = 0;
+    rc_dbg_unimpl_pc = 0;
+    rc_dbg_unimpl_what = "";
+}
+}
+'''
+
+FAULT_BODY = r'''static void fault(Cpu& c, uint32_t addr, bool write) {
+    // [FAULT_DBG_FAULT] catat akses memori yang gagal untuk GUEST_FAULT.
+    rc_dbg_fault_addr = addr;
+    rc_dbg_fault_pc = c.current_pc;
+    rc_dbg_fault_write = write ? 1u : 0u;
+    rc_dbg_fault_seen = 1u;
+    if (!c.faulted) {
+        RC_LOGE("guest memory fault: %s addr=0x%08x pc=0x%08x",
+                write ? "write" : "read", addr, c.current_pc);
+    }
+    c.faulted = true;
+}'''
+
+UNIMPL_BODY = r'''void rc_unimplemented(uint32_t pc, const char* what) {
+    // [FAULT_DBG_UNIMPL] catat instruksi yang belum diterjemahkan.
+    rc_dbg_unimpl_pc = pc;
+    rc_dbg_unimpl_what = what ? what : "?";
+    RC_LOGE("guest unimplemented instruction: pc=0x%08x what=%s", pc, rc_dbg_unimpl_what);
+    if (rc_dbg_log_hook) {
+        char line[256];
+        std::snprintf(line, sizeof(line),
+                      "instruksi belum diterjemahkan di pc=0x%08x (%s)",
+                      pc, rc_dbg_unimpl_what);
+        rc_dbg_log_hook("RC_UNIMPL", line);
+    }
+}'''
+
+HLE_BODY = r'''int rc_hle_dispatch(Cpu& cpu, uint32_t nid) {
     // [HLE_FALLBACK] Ditambahkan otomatis oleh tools/patch_hle_fallback.py.
     // Import yang sudah dipetakan tetap dipanggil seperti biasa.
+    rc_dbg_last_pc = cpu.current_pc;
+    rc_dbg_last_nid = nid;
+    ++rc_dbg_hle_calls;
+
     for (size_t i = 0; i < rc_hle_count; ++i) {
         if (rc_hle_table[i].nid == nid) {
             if (!rc_hle_table[i].fn) break;
@@ -57,8 +124,12 @@ PATCHED_BODY = r'''int rc_hle_dispatch(Cpu& cpu, uint32_t nid) {
 #if defined(__ANDROID__) && !defined(RC_HOST_BUILD)
     if (first_time) {
         __android_log_print(ANDROID_LOG_ERROR, "HLE_MISSING",
-            "Unmapped HLE import: %s (NID: 0x%08X) pc=0x%08X -> return 0",
-            "unmapped", nid, cpu.current_pc);
+            "%s import belum dipetakan: fungsi=\"unmapped\" (NID: 0x%08X) "
+            "pemanggil_pc=0x%08X r0=0x%08X r1=0x%08X r2=0x%08X r3=0x%08X "
+            "-> return 0",
+            (hle_missing_total == 1) ? "PERTAMA" : "BARU",
+            nid, cpu.current_pc,
+            cpu.r[0], cpu.r[1], cpu.r[2], cpu.r[3]);
     }
     if (hle_missing_total == 1 || (hle_missing_total % 5000) == 0) {
         __android_log_print(ANDROID_LOG_ERROR, "HLE_MISSING",
@@ -70,10 +141,27 @@ PATCHED_BODY = r'''int rc_hle_dispatch(Cpu& cpu, uint32_t nid) {
 #else
     if (first_time) {
         std::fprintf(stderr,
-            "HLE_MISSING: Unmapped HLE import: %s (NID: 0x%08X) pc=0x%08X -> return 0\n",
-            "unmapped", nid, cpu.current_pc);
+            "HLE_MISSING: %s import belum dipetakan: fungsi=\"unmapped\" "
+            "(NID: 0x%08X) pemanggil_pc=0x%08X r0=0x%08X r1=0x%08X "
+            "r2=0x%08X r3=0x%08X -> return 0\n",
+            (hle_missing_total == 1) ? "PERTAMA" : "BARU",
+            nid, cpu.current_pc,
+            cpu.r[0], cpu.r[1], cpu.r[2], cpu.r[3]);
     }
 #endif
+
+    // Salin ke recomp.log (tab Log) lewat hook host, bukan hanya logcat.
+    if (first_time && rc_dbg_log_hook) {
+        char line[320];
+        std::snprintf(line, sizeof(line),
+            "import belum dipetakan: fungsi=\"unmapped\" (NID 0x%08X) "
+            "pemanggil_pc=0x%08X r0=0x%08X r1=0x%08X r2=0x%08X r3=0x%08X "
+            "-> return 0",
+            nid, cpu.current_pc,
+            cpu.r[0], cpu.r[1], cpu.r[2], cpu.r[3]);
+        rc_dbg_log_hook((hle_missing_total == 1) ? "HLE_MISSING[PERTAMA]"
+                                                 : "HLE_MISSING", line);
+    }
     return 0;
 }
 '''
@@ -116,6 +204,17 @@ def find_function_span(text: str, start: int) -> int:
     return -1
 
 
+def replace_span(text: str, signature: re.Pattern[str], body: str, what: str):
+    """Replace a whole function definition matched by `signature` with `body`."""
+    m = signature.search(text)
+    if not m:
+        return text, False
+    end = find_function_span(text, m.end() - 1)
+    if end == -1:
+        raise RuntimeError(f"tidak bisa menemukan akhir fungsi {what}")
+    return text[: m.start()] + body + text[end:], True
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("pemakaian: patch_hle_fallback.py <path/ke/recomp.cpp>", file=sys.stderr)
@@ -127,29 +226,66 @@ def main(argv: list[str]) -> int:
         return 1
 
     text = path.read_text(encoding="utf-8", errors="surrogateescape")
+    changed: list[str] = []
 
-    if "HLE_MISSING" in text and "[HLE_FALLBACK]" in text:
-        print(f"OK: {path} sudah dipatch (HLE_MISSING sudah ada) — tidak diubah.")
+    # 1) Variabel telemetri global (di depan namespace rc).
+    if GLOBALS_MARK not in text:
+        marker = "namespace rc {"
+        idx = text.find(marker)
+        if idx == -1:
+            print(f"error: 'namespace rc {{' tidak ditemukan di {path}", file=sys.stderr)
+            return 1
+        text = text[:idx] + GLOBALS_BLOCK + "\n" + text[idx:]
+        changed.append("globals")
+
+    # 2) fault() -> catat alamat/arah/pc.
+    if FAULT_MARK not in text:
+        sig = re.compile(
+            r"static\s+void\s+fault\s*\(\s*Cpu\s*&\s*c\s*,\s*uint32_t\s+addr\s*,"
+            r"\s*bool\s+write\s*\)\s*\{"
+        )
+        text, done = replace_span(text, sig, FAULT_BODY, "fault()")
+        if not done:
+            print(f"error: fault() tidak ditemukan di {path}", file=sys.stderr)
+            return 1
+        changed.append("fault")
+
+    # 3) rc_unimplemented() -> catat pc/what.
+    if UNIMPL_MARK not in text:
+        sig = re.compile(
+            r"void\s+rc_unimplemented\s*\(\s*uint32_t\s+pc\s*,\s*"
+            r"const\s+char\s*\*\s*what\s*\)\s*\{"
+        )
+        text, done = replace_span(text, sig, UNIMPL_BODY, "rc_unimplemented()")
+        if not done:
+            print(f"error: rc_unimplemented() tidak ditemukan di {path}", file=sys.stderr)
+            return 1
+        changed.append("unimplemented")
+
+    # 4) rc_hle_dispatch() -> HLE_MISSING + return 0.
+    if HLE_MARK not in text:
+        sig = re.compile(
+            r"int\s+rc_hle_dispatch\s*\(\s*Cpu\s*&\s*cpu\s*,\s*uint32_t\s+nid\s*\)\s*\{"
+        )
+        text, done = replace_span(text, sig, HLE_BODY, "rc_hle_dispatch()")
+        if not done:
+            print(f"error: rc_hle_dispatch() tidak ditemukan di {path}", file=sys.stderr)
+            return 1
+        changed.append("hle")
+
+    if not changed:
+        print(f"OK: {path} sudah dipatch penuh — tidak diubah.")
         return 0
 
-    m = SIGNATURE.search(text)
-    if not m:
-        print(f"error: rc_hle_dispatch tidak ditemukan di {path}", file=sys.stderr)
+    # Sanity check: semua penanda harus ada setelah patch.
+    missing = [m for m in (GLOBALS_MARK, FAULT_MARK, UNIMPL_MARK, HLE_MARK)
+               if m not in text]
+    if missing:
+        print(f"error: penanda hilang setelah patch: {missing}", file=sys.stderr)
         return 1
 
-    end = find_function_span(text, m.end() - 1)
-    if end == -1:
-        print(f"error: tidak bisa menemukan akhir fungsi di {path}", file=sys.stderr)
-        return 1
-
-    patched = text[: m.start()] + PATCHED_BODY + text[end:]
-
-    if "HLE_MISSING" not in patched:
-        print("error: hasil patch tidak berisi HLE_MISSING", file=sys.stderr)
-        return 1
-
-    path.write_text(patched, encoding="utf-8", errors="surrogateescape")
-    print(f"OK: {path} dipatch — rc_hle_dispatch kini log HLE_MISSING + return 0.")
+    path.write_text(text, encoding="utf-8", errors="surrogateescape")
+    print(f"OK: {path} dipatch ({', '.join(changed)}).")
     return 0
 
 
