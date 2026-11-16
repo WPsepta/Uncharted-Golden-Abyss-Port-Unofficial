@@ -184,23 +184,39 @@ FIXES = [
         0x8138979E,
         1,
         "01 35 04 34 b5 42 f3 d3",
-        """    // [GEN_FIX 0x8138979e] loop counter: force exit after N iterations to break poll
+        """    // [GEN_FIX 0x8138979e] loop: iter r5++/r4+=4 while r5<r6, body calls 0x813833cc(r0=0x81885268,r1=r5,r2=*r4)
     static uint32_t rc_loop_8138979e = 0;
     { uint32_t a = c.r[5], b = 0x1u; uint32_t v = ((c.r[5]) + (0x1u)); c.r[5] = v; RC_ADD_FLAGS(a, b, 0u); }  // adds r5, #1
     { uint32_t a = c.r[4], b = 0x4u; uint32_t v = ((c.r[4]) + (0x4u)); c.r[4] = v; RC_ADD_FLAGS(a, b, 0u); }  // adds r4, #4
     RC_SUB_FLAGS(c.r[5], c.r[6], 0u);  // cmp r5, r6
+    // Debug: element pointer/value for this iteration
+    uint32_t _elem_addr = c.r[4] - 4u;
+    uint32_t _elem_val = c.in_range(_elem_addr, 4) ? c.read32(_elem_addr) : 0xDEADBEEFu;
     if (c.cond(0x3)) {  // blo 0x8138978e
-        if (++rc_loop_8138979e > 5000u) {
-            rc_loop_8138979e = 0;
+        ++rc_loop_8138979e;
 #if defined(__ANDROID__)
-            __android_log_print(ANDROID_LOG_WARN, "ENGINE_DEBUG",
-                "[LOOP_BREAK] 0x8138979e: forced exit after 5000 iters (r5=0x%08x r6=0x%08x)",
-                c.r[5], c.r[6]);
-            __android_log_print(ANDROID_LOG_WARN, "HALT_DEBUG",
-                "[LOOP_BREAK] will exit loop body to 0x813897a6");
-            if (rc_dbg_log_hook) {
-                char _lb[160]; snprintf(_lb, sizeof(_lb), "[LOOP_BREAK] 0x8138979e: forced exit after 5000 iters (r5=0x%08x r6=0x%08x)", c.r[5], c.r[6]);
-                rc_dbg_log_hook("ENGINE_DEBUG", _lb);
+        if (rc_loop_8138979e <= 5u || rc_loop_8138979e == 100u || (rc_loop_8138979e % 200u) == 0u) {
+            char _lw[256];
+            snprintf(_lw, sizeof(_lw),
+                "LOOP_WAIT: 0x8138979e iter=%u addr(elem@r4-4)=0x%08x current_value=0x%08x r4=0x%08x r5=0x%08x r6=0x%08x",
+                rc_loop_8138979e, _elem_addr, _elem_val, c.r[4], c.r[5], c.r[6]);
+            __android_log_print(ANDROID_LOG_WARN, "LOOP_WAIT", "%s", _lw);
+            if (rc_dbg_log_hook) rc_dbg_log_hook("LOOP_WAIT", _lw);
+        }
+#endif
+        // Paksa keluar secara natural setelah ~100 iterasi (set r5==r6 agar loop selesai)
+        if (rc_loop_8138979e >= 100u) {
+            rc_loop_8138979e = 0;
+            c.r[5] = c.r[6];
+            RC_SUB_FLAGS(c.r[5], c.r[6], 0u); // blo menjadi false
+#if defined(__ANDROID__)
+            {
+                char _lb[200];
+                snprintf(_lb, sizeof(_lb),
+                    "LOOP_WAIT: forced natural exit after 100 iters (addr=0x%08x val=0x%08x) -> r5=r6=0x%08x",
+                    _elem_addr, _elem_val, c.r[6]);
+                __android_log_print(ANDROID_LOG_WARN, "LOOP_WAIT", "%s", _lb);
+                if (rc_dbg_log_hook) rc_dbg_log_hook("LOOP_WAIT", _lb);
             }
 #endif
             c.next_pc = 0x813897a6u; return;
@@ -509,11 +525,23 @@ for _a in ARM_STUB_ADDRS:
         _log = (
             "#if defined(__ANDROID__)\n"
             "    rc_dbg_stub_caller_%08x = c.r[14];\n"
-            "    { static uint32_t rc_stub_log_n = 0; if (rc_stub_log_n < 5u || (rc_stub_log_n %% 500u) == 0u) {\n"
-            "      char _sm[180]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%%08x dipanggil (lr/ret=0x%%08x), return SCE_OK(0) [#%%u]\", 0x%08x, c.r[14], rc_stub_log_n);\n"
-            "      __android_log_print(ANDROID_LOG_WARN, \"STUB_CALL\", \"%%s\", _sm);\n"
-            "      if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _sm); } ++rc_stub_log_n; }\n"
-            "#endif\n" % (_a, _a)
+            "    { static uint32_t rc_stub_log_n = 0;\n"
+            "      char _gm[220]; snprintf(_gm, sizeof(_gm),\n"
+            "        \"Fungsi 0x%%08x dipanggil arg r0=0x%%08x r1=0x%%08x r2=0x%%08x r3=0x%%08x lr=0x%%08x [#%%u]\",\n"
+            "        0x%08x, c.r[0], c.r[1], c.r[2], c.r[3], c.r[14], rc_stub_log_n);\n"
+            "      __android_log_print(ANDROID_LOG_WARN, \"GXM_STUB\", \"%%s\", _gm);\n"
+            "      if (rc_stub_log_n < 10u || (rc_stub_log_n %% 500u) == 0u) {\n"
+            "        if (rc_dbg_log_hook) rc_dbg_log_hook(\"GXM_STUB\", _gm);\n"
+            "      }\n"
+            "      if (rc_stub_log_n < 5u || (rc_stub_log_n %% 500u) == 0u) {\n"
+            "        char _sm[180]; snprintf(_sm, sizeof(_sm),\n"
+            "          \"Fungsi stub di 0x%%08x dipanggil (lr/ret=0x%%08x), return SCE_OK(0) [#%%u]\",\n"
+            "          0x%08x, c.r[14], rc_stub_log_n);\n"
+            "        __android_log_print(ANDROID_LOG_WARN, \"STUB_CALL\", \"%%s\", _sm);\n"
+            "        if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _sm);\n"
+            "      }\n"
+            "      ++rc_stub_log_n; }\n"
+            "#endif\n" % (_a, _a, _a)
         )
     FIXES.append((
         _a, 0, "00 00 e0 e3 1e ff 2f e1",
