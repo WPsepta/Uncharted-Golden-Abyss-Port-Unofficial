@@ -196,6 +196,8 @@ FIXES = [
             __android_log_print(ANDROID_LOG_WARN, "ENGINE_DEBUG",
                 "[LOOP_BREAK] 0x8138979e: forced exit after 5000 iters (r5=0x%08x r6=0x%08x)",
                 c.r[5], c.r[6]);
+            __android_log_print(ANDROID_LOG_WARN, "HALT_DEBUG",
+                "[LOOP_BREAK] will exit loop body to 0x813897a6");
 #endif
             c.next_pc = 0x813897a6u; return;
         }
@@ -203,6 +205,37 @@ FIXES = [
     }
     rc_loop_8138979e = 0;
     c.next_pc = 0x813897a6u; return;""",
+    ),
+    (
+        0x813897A6,
+        1,
+        "0d f5 00 7d 70 bd",
+        """    // [GEN_FIX 0x813897a6] epilogue: add sp,#0x200 ; pop {r4-r6,pc}
+    // HALT_DEBUG: log before returning (helps diagnose halt normal / next_pc==0)
+    {
+        uint32_t sp0 = c.r[13];
+        uint32_t ret = c.read32(sp0 + 0x20cu); // saved pc after add sp,0x200 -> pop at +0xc
+#if defined(__ANDROID__)
+        __android_log_print(ANDROID_LOG_DEBUG, "HALT_DEBUG",
+            "0x813897a6 epilogue: sp=0x%08x ret_pc=0x%08x r4=0x%08x r5=0x%08x r6=0x%08x lr=0x%08x",
+            sp0, ret & ~1u, c.read32(sp0 + 0x200u), c.read32(sp0 + 0x204u),
+            c.read32(sp0 + 0x208u), c.r[14]);
+#endif
+        c.r[13] = ((sp0) + (0x200u));
+        c.r[4] = c.read32(sp0 + 0x200u);
+        c.r[5] = c.read32(sp0 + 0x204u);
+        c.r[6] = c.read32(sp0 + 0x208u);
+        uint32_t t = c.read32(sp0 + 0x20cu);
+        c.r[13] = sp0 + 0x210u;
+        c.next_pc = t & ~1u;
+#if defined(__ANDROID__)
+        if (c.next_pc == 0u) {
+            __android_log_print(ANDROID_LOG_WARN, "HALT_DEBUG",
+                "0x813897a6: return target is 0 (thread/init end) - guest will halt normal");
+        }
+#endif
+        return;
+    }""",
     ),
 ]
 
