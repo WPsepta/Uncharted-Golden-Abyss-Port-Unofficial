@@ -1110,78 +1110,10 @@ void on_cmd(android_app* app, int32_t cmd) {
     }
 }
 
-// === HLE GXM dummy draw =====================================================
-// Stub [HLE_GXM_END_SCENE] (dipaksa oleh tick thread) menaikkan g_hle_cmdlists.
-// Render loop (main thread, GL context current) men-drain counter itu lalu
-// menggambar SATU triangle dummy — state nyata (glUseProgram/VBO) dibangun
-// malas sekali saja. GL TIDAK PERNAH dipanggil dari tick thread (tidak ada
-// EGL context di sana) — aman.
-static void dummy_gl_draw_tri() {
-    static int  dummy_state = 0;   // 0 = belum coba, 1 = siap, 2 = shader gagal
-    static GLuint dummy_prog = 0, dummy_vbo = 0;
-    if (dummy_state == 2) return;
-    if (dummy_state == 0) {
-        static const char* kVs =
-            "attribute vec2 aPos;\n"
-            "void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }\n";
-        static const char* kFs =
-            "precision mediump float;\n"
-            "void main(){ gl_FragColor = vec4(1.0, 0.28, 0.10, 1.0); }\n";
-        GLuint v = glCreateShader(GL_VERTEX_SHADER);
-        GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
-        GLint ok = 0;
-        if (v) {
-            glShaderSource(v, 1, &kVs, nullptr);
-            glCompileShader(v);
-            glGetShaderiv(v, GL_COMPILE_STATUS, &ok);
-        }
-        if (!ok) { __android_log_print(ANDROID_LOG_WARN, "DRAW_DEBUG", "dummy draw: vertex shader gagal compile"); }
-        GLint okf = 0;
-        if (f) {
-            glShaderSource(f, 1, &kFs, nullptr);
-            glCompileShader(f);
-            glGetShaderiv(f, GL_COMPILE_STATUS, &okf);
-        }
-        if (!okf) { __android_log_print(ANDROID_LOG_WARN, "DRAW_DEBUG", "dummy draw: fragment shader gagal compile"); }
-        if (ok && okf) {
-            dummy_prog = glCreateProgram();
-            glAttachShader(dummy_prog, v);
-            glAttachShader(dummy_prog, f);
-            glLinkProgram(dummy_prog);
-            GLint linked = 0;
-            glGetProgramiv(dummy_prog, GL_LINK_STATUS, &linked);
-            if (linked) {
-                const float verts[6] = { -1.0f, -1.0f, -0.84f, -1.0f, -0.92f, -0.84f };
-                glGenBuffers(1, &dummy_vbo);
-                glBindBuffer(GL_ARRAY_BUFFER, dummy_vbo);
-                glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-                glBindBuffer(GL_ARRAY_BUFFER, 0);
-                dummy_state = 1;
-                engine_logf("DRAW_DEBUG: dummy draw siap (program=%u vbo=%u).", dummy_prog, dummy_vbo);
-            } else {
-                __android_log_print(ANDROID_LOG_WARN, "DRAW_DEBUG", "dummy draw: link program gagal");
-                dummy_state = 2;
-            }
-        } else {
-            dummy_state = 2;
-        }
-        if (v) glDeleteShader(v);
-        if (f) glDeleteShader(f);
-        if (dummy_state != 1) return;
-    }
-    // Dummy state yang diminta HLE: glClearColor dipanggil (state saja; frame
-    // ImGui TIDAK di-glClear). Lalu dummy glDrawArrays (1 triangle nyata).
-    glClearColor(0.02f, 0.031f, 0.06f, 1.0f);
-    glUseProgram(dummy_prog);
-    glBindBuffer(GL_ARRAY_BUFFER, dummy_vbo);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void*)0);
-    glDrawArrays(GL_TRIANGLES, 0, 3);          // <- dummy glDrawArrays
-    glDisableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glUseProgram(0);
-}
-
+// HLE GXM: stub EndScene (tick thread) hanya menaikkan rc::g_hle_cmdlists dan
+// men-dump PARAMATER (lihat dump di fix-block GXM_STUB). Render loop TIDAK
+// menggambar segitiga dummy lagi — frame dibersihkan dengan hitam penuh via
+// glClearColor+glClear di bawah (render asli belum tersedia).
 void render_loop(AppState* s) {
     using clock = std::chrono::steady_clock;
     auto last = clock::now();
@@ -1238,8 +1170,9 @@ void render_loop(AppState* s) {
             ui::overlay_logf("RENDER_DEBUG: Skip draw: Tidak ada tekstur (btex=0 / .bstex=0)");
         }
 
-        // Normal clear (no red flicker - smoke test moved to on_cmd, runs once)
-        glClearColor(0.023f, 0.031f, 0.041f, 1.0f);
+        // Normal clear — hitam penuh (render asli belum tersedia; segitiga
+        // dummy HLE sudah dihapus).
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         if (s->imgui_ready) {
@@ -1281,20 +1214,22 @@ void render_loop(AppState* s) {
             }
         }
 
-        // HLE GXM: drain counter CmdLists (dinaikkan stub [HLE_GXM_END_SCENE]
-        // yang dipaksa tick thread setiap 5 tick). Saat counter berubah,
-        // jalankan SATU dummy draw nyata (glClearColor + glDrawArrays) di
-        // main thread (GL context current) supaya DRAW_DEBUG menampilkan
-        // CmdLists>0 dan GPU menerima perintah nyata.
+        // HLE GXM: drain counter rc::g_hle_cmdlists (dinaikkan oleh stub
+        // [HLE_GXM_END_SCENE] di paksa tick thread tiap 5 tick). TIDAK ada
+        // draw GL di sini — segitiga dummy sudah dihapus (dilaporkan user).
+        // Hanya log DRAW_DEBUG, dibatasi (first 3 + tiap 500) ke LOGCAT saja
+        // (__android_log_print), TANPA fopen/fflush ke recomp.log di UI thread.
         {
             static uint32_t lastDrained = 0;
+            static uint32_t drainLogN = 0;
             const uint32_t cl = rc::g_hle_cmdlists;  // volatile read, 32-bit align
             if (cl != lastDrained) {
-                dummy_gl_draw_tri();
                 lastDrained = cl;
-                __android_log_print(ANDROID_LOG_DEBUG, "DRAW_DEBUG",
-                    "CmdLists=%u (HLE EndScene drain; dummy glDrawArrays dijalankan)", cl);
-                ui::overlay_logf("DRAW_DEBUG: CmdLists=%u (HLE EndScene drain; dummy glDrawArrays dijalankan)", cl);
+                ++drainLogN;
+                if (cl <= 3u || (cl % 500u) == 0u) {
+                    __android_log_print(ANDROID_LOG_DEBUG, "DRAW_DEBUG",
+                        "CmdLists=%u (HLE EndScene; tanpa draw GL — pending GXM->GL translation)", cl);
+                }
             }
         }
 

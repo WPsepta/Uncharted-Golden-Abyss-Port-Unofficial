@@ -594,14 +594,26 @@ FIXES.append((
     0,
     None,  # synthetic block: tiada byte di ELF; verifikasi byte dilewati
     """    // [HLE_GXM_BEGIN_SCENE] sceGxmBeginScene dummy — menandai frame dimulai.
+    // PARAM DUMP: cetak arg + konten pointer r0 (ctx) & stack, supaya kita bisa
+    // MELIHAT apa yang dikirim guest ke sceGxmBeginScene (jika pernah dipanggil
+    // guest asli). Dipanggil juga oleh paksa tick thread (arg = fake context).
     static uint32_t rc_hle_begin_n = 0;
     ++rc_hle_begin_n;
 #if defined(__ANDROID__)
     if (rc_hle_begin_n <= 3u || (rc_hle_begin_n % 500u) == 0u) {
-        char _hb[200];
+        char _hb[420];
         snprintf(_hb, sizeof(_hb),
-            "HLE_GXM: sceGxmBeginScene #%u (dummy, guest display list kosong)",
-            rc_hle_begin_n);
+            "sceGxmBeginScene #%u arg r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x sp=0x%08x "
+            "ctx[r0+0..12]=%08x %08x %08x %08x stk[sp+0..12]=%08x %08x %08x %08x",
+            rc_hle_begin_n, c.r[0], c.r[1], c.r[2], c.r[3], c.r[13],
+            c.in_range(c.r[0], 16u) ? c.read32(c.r[0] + 0x0u) : 0u,
+            c.in_range(c.r[0], 16u) ? c.read32(c.r[0] + 0x4u) : 0u,
+            c.in_range(c.r[0], 16u) ? c.read32(c.r[0] + 0x8u) : 0u,
+            c.in_range(c.r[0], 16u) ? c.read32(c.r[0] + 0xcu) : 0u,
+            c.in_range(c.r[13], 16u) ? c.read32(c.r[13] + 0x0u) : 0u,
+            c.in_range(c.r[13], 16u) ? c.read32(c.r[13] + 0x4u) : 0u,
+            c.in_range(c.r[13], 16u) ? c.read32(c.r[13] + 0x8u) : 0u,
+            c.in_range(c.r[13], 16u) ? c.read32(c.r[13] + 0xcu) : 0u);
         __android_log_print(ANDROID_LOG_WARN, "GXM_STUB", "%s", _hb);
         if (rc_dbg_log_hook) rc_dbg_log_hook("GXM_STUB", _hb);
     }
@@ -613,24 +625,31 @@ FIXES.append((
     0,
     None,  # synthetic block: tiada byte di ELF; verifikasi byte dilewati
     """    // [HLE_GXM_END_SCENE] sceGxmEndScene dummy — CmdLists++ di host.
-    // Render loop Android (GL context current) men-drain counter global ini
-    // lalu menjalankan glClearColor + glDrawArrays dummy (aman: GL hanya
-    // dipanggil dari thread yang punya context current).
-    // NB: blok ini di-compile DI DALAM namespace rc; android_main.cpp
-    // mendefinisikan rc::g_hle_cmdlists (volatile uint32_t).
+    // Render loop Android (main thread, GL context current) membaca counter
+    // ini dan HIHITUNG lewat (tanpa draw — segitiga dummy dihapus user).
+    // PARAM DUMP: cetak arg + 8 word pertama dari buffer r0 (cand. command
+    // buffer) & arg r1/r2 — untuk menilai apakah data GXM valid (jika ini
+    // panggilan asli guest; paksa tick thread memakai buffer fake 0x81010000).
     extern volatile uint32_t g_hle_cmdlists;
     ++g_hle_cmdlists;
     const uint32_t _ln = g_hle_cmdlists;
 #if defined(__ANDROID__)
-    {
-        char _he[220];
+    if (_ln <= 3u || (_ln % 500u) == 0u) {
+        char _he[480];
         snprintf(_he, sizeof(_he),
-            "HLE_GXM: sceGxmEndScene -> DRAW_DEBUG CmdLists=%u "
-            "(host men-drain & menggambar dummy draw)", _ln);
+            "sceGxmEndScene #%u CmdLists=%u arg r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x sp=0x%08x "
+            "cmdbuf[r0+0..28]=%08x %08x %08x %08x %08x %08x %08x %08x",
+            _ln, _ln, c.r[0], c.r[1], c.r[2], c.r[3], c.r[13],
+            c.in_range(c.r[0], 32u) ? c.read32(c.r[0] + 0x00u) : 0u,
+            c.in_range(c.r[0], 32u) ? c.read32(c.r[0] + 0x04u) : 0u,
+            c.in_range(c.r[0], 32u) ? c.read32(c.r[0] + 0x08u) : 0u,
+            c.in_range(c.r[0], 32u) ? c.read32(c.r[0] + 0x0cu) : 0u,
+            c.in_range(c.r[0], 32u) ? c.read32(c.r[0] + 0x10u) : 0u,
+            c.in_range(c.r[0], 32u) ? c.read32(c.r[0] + 0x14u) : 0u,
+            c.in_range(c.r[0], 32u) ? c.read32(c.r[0] + 0x18u) : 0u,
+            c.in_range(c.r[0], 32u) ? c.read32(c.r[0] + 0x1cu) : 0u);
         __android_log_print(ANDROID_LOG_WARN, "DRAW_DEBUG", "%s", _he);
-        if (_ln <= 3u || (_ln % 500u) == 0u) {
-            if (rc_dbg_log_hook) rc_dbg_log_hook("DRAW_DEBUG", _he);
-        }
+        if (rc_dbg_log_hook) rc_dbg_log_hook("DRAW_DEBUG", _he);
     }
 #endif
     { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }""",

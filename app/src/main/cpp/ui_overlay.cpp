@@ -9,8 +9,10 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <chrono>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -270,11 +272,21 @@ void overlay_toggle_gear() {
 // lock bisa saling menimpa isi baris recomp.log (dan UB di beberapa libc).
 std::mutex g_log_mtx;
 
+// ANR guard: overlay_logf TIDAK BOLEH memblokir pemanggil. Tick thread
+// menulis recomp.log ke eMMC tiap ~0,8 dtk (heartbeat); kalau UI thread
+// mengunci mutex di sini saat tick menulis, UI bisa terhenti -> ANR.
+// Solusi: try_lock dengan retry singkat; kalau tetap gagal, DROP baris ini
+// (log penting seperti fault juga sudah dicetak via __android_log_print).
 void overlay_logf(const char* fmt, ...) {
-    std::lock_guard<std::mutex> lk(g_log_mtx);
+    bool locked = g_log_mtx.try_lock();
+    for (int i = 0; !locked && i < 3; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        locked = g_log_mtx.try_lock();
+    }
+    if (!locked) return;  // kontensi: drop, jangan tunggu
+    std::lock_guard<std::mutex> lk(g_log_mtx, std::adopt_lock_t{});
     va_list args;
     va_start(args, fmt);
-    va_end(args);
     FILE* f = fopen(g.log_path, "a");
     if (f) {
         va_list args2;
@@ -285,6 +297,7 @@ void overlay_logf(const char* fmt, ...) {
         fflush(f);  // FLUSH: pastikan log tertulis sebelum close
         fclose(f);
     }
+    va_end(args);
 }
 
 void overlay_render() {
