@@ -236,7 +236,16 @@ static AssetCensus scan_assets(const char* root) {
     return c;
 }
 
+// Counter CmdLists HLE — didefinisikan di namespace GLOBAL rc (hook dibaca
+// entity part999 yang dikompilasi di dalam namespace rc); render loop membaca
+// via rc::g_hle_cmdlists. volatile 4B -> load/store atomik di ARM.
+namespace rc {
+volatile uint32_t g_hle_cmdlists = 0;
+}
+
 namespace {
+
+static void engine_logf(const char* fmt, ...);  // forward decl (definisi di bawah)
 
 struct AppState {
     android_app* app = nullptr;
@@ -246,6 +255,9 @@ struct AppState {
     std::atomic<bool> running{false};
     std::thread worker;
     std::thread tick_thread;              // dedicated dummy/game-loop tick (idle setelah halt)
+    std::atomic<bool> tick_spawned{false};        // true jika dummy tick thread pernah di-detach
+    std::atomic<bool> tick_done{false};           // true saat dummy tick thread keluar dari loop
+    std::atomic<bool> guest_mem_released{false};  // guard: rc_shutdown hanya 1x
     char log_path[512] = "recomp.log";
     char ini_path[512] = "settings.ini";
     bool imgui_ready = false;
@@ -257,6 +269,24 @@ struct AppState {
 };
 
 AppState* g_app = nullptr;
+
+// rc_shutdown hanya boleh dipanggil SEKALI dan TIDAK BOLEH saat dummy tick
+// thread masih berjalan (ia masih membaca/menulis guest memory).
+// - Path normal (fault/stall, tick belum di-spawn): worker memanggil ini.
+// - Path halt (tick di-detach): dummy tick thread memanggil ini di akhir.
+void release_guest_mem(AppState* s) {
+#if RC_WITH_GAME_CODE
+    bool expected = false;
+    if (s->guest_mem_released.compare_exchange_strong(expected, true)) {
+        engine_logf("guest memory: rc_shutdown (sekali saja).");
+        rc::rc_shutdown(s->cpu);
+    } else {
+        engine_logf("guest memory: rc_shutdown dilewati (sudah dilepas).");
+    }
+#else
+    (void)s;
+#endif
+}
 
 void join_paths(char* dst, size_t n, const char* base, const char* file) {
     if (base && base[0]) snprintf(dst, n, "%s/%s", base, file);
@@ -558,6 +588,18 @@ static void log_guest_fault(AppState* s, const char* where) {
 // bloknya menyetel next_pc=0 -> halt bersih -> tick thread lanjut tick berikut.
 static constexpr uint32_t kDummyGameLoopEntry = 0x813833ccu;  // ARM prologue 0x813833cc
 static constexpr uint32_t kTickTrampoline = 0x81f00000u;      // [TICK_TRAMPOLINE]
+// Stub HLE grafis (didaftarkan di tools/patch_gen_blocks.py, synthetic blocks):
+//   0x81F00010 [HLE_GXM_BEGIN_SCENE]  sceGxmBeginScene dummy
+//   0x81F00020 [HLE_GXM_END_SCENE]    sceGxmEndScene dummy -> CmdLists++
+static constexpr uint32_t kHleGxmBeginScene = 0x81F00010u;
+static constexpr uint32_t kHleGxmEndScene   = 0x81F00020u;
+// VBlank-like pending flag di guest window: guest loop membaca status seperti
+// ini sebelum melanjutkan frame; host menulis 1 secara periodik (tiap tick).
+// Alamat di area fake-context yang TIDAK dipakai blok lain (0x81010000+0xF00).
+static constexpr uint32_t kVblankFlagAddr = 0x81010F00u;
+
+// Counter rc::g_hle_cmdlists didefinisikan di namespace rc GLOBAL (lihat di
+// atas, sebelum "namespace {") — jangan definisikan lagi di sini.
 
 struct GuestCtxBackup {
     uint32_t r[16];
@@ -633,6 +675,13 @@ static void dummy_tick_thread(AppState* s) {
     volatile uint64_t tick = 0;
     engine_logf("Dummy tick thread: mulai (tick 16 ms + save/restore ctx penuh).");
     while (s->running.load()) {
+        // [VBLANK] VBlank-like pending flag di guest window — host menulis 1
+        // setiap tick secara periodik (16 ms ~ frame 60Hz) supaya guest loop
+        // yang menunggu status/flag VBlank melihatnya terisi (bukan 0 selamanya).
+        if (c.in_range(kVblankFlagAddr, 4u)) {
+            c.write32(kVblankFlagAddr, 1u);
+            c.write32(kVblankFlagAddr + 0x4u, 1u);  // slot mirror (beberapa loop cek pasangan)
+        }
         guest_ctx_save(c);
         volatile bool halted = false;
         if (sigsetjmp(jb, 1) != 0) {
@@ -675,9 +724,12 @@ static void dummy_tick_thread(AppState* s) {
                     break;
                 }
             }
-            // Paksa panggil stub grafis setiap 5 tick, dengan arg valid + lr trampoline.
+            // Paksa panggil stub grafis HLE setiap 5 tick: BeginScene + EndScene
+            // (EndScene menaikkan counter CmdLists; render loop men-drain &
+            // menggambar dummy draw) plus dua stub SCE_OK lama. lr = trampoline.
             if ((tick % 5u) == 0u) {
-                const uint32_t stubs[2] = {0x81815464u, 0x81815494u};
+                const uint32_t stubs[4] = {kHleGxmBeginScene, kHleGxmEndScene,
+                                           0x81815464u, 0x81815494u};
                 for (uint32_t addr : stubs) {
                     c.running = true;
                     c.faulted = false;
@@ -719,6 +771,8 @@ static void dummy_tick_thread(AppState* s) {
                         (unsigned long long)tick, (unsigned long long)c.blocks_run,
                         c.current_pc, c.r[14], c.r[0],
                         (unsigned long long)rc_dbg_step_total, n);
+            engine_logf("[VBLANK] guest flag 0x%08x <- 1 (periodik 16 ms/tick; "
+                        "CmdLists=%u)", kVblankFlagAddr, rc::g_hle_cmdlists);
         }
         ++tick;
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
@@ -726,7 +780,11 @@ static void dummy_tick_thread(AppState* s) {
     }
     t_guest_jmp = nullptr;
     t_guest_armed = 0;
-    engine_logf("Dummy tick thread: berhenti (s->running=false).");
+    engine_logf("Dummy tick thread: berhenti (s->running=false). "
+                "Melepas guest memory dari thread ini (bukan dari UI thread).");
+    s->tick_done.store(true);
+    // rc_shutdown SEKALI, di thread pemilik guest memory terakhir.
+    release_guest_mem(s);
 }
 
 static void boot_guest_elf(AppState* s, const char* elf_path) {
@@ -795,9 +853,9 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
     engine_logf("rc::rc_boot OK: guest memory 256 MiB terpetakan.");
 
     if (!rc::rc_load_elf_data(s->cpu, elf_path)) {
-        engine_logf("rc_load_elf_data GAGAL: tidak ada PT_LOAD yang cocok "
-                    "dengan guest window. Boot dibatalkan.");
-        rc::rc_shutdown(s->cpu);
+        engine_logf("rc_load_elf_data GAGAL: tidak ada PT_LOAD yang "
+                    "cocok dengan guest window. Boot dibatalkan.");
+        release_guest_mem(s);
         return;
     }
     // --- Entry override -----------------------------------------------------
@@ -931,26 +989,41 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
             //     (r0/lr/cpsr TIDAK jadi 0x00000000 di tick tinggi),
             //   - kalau ret_pc==0 / next_pc==0 / running==false, PC dipaksa
             //     balik ke game-loop entry 0x813833cc (thread tidak berhenti).
-            // Worker menunggu tick thread di sini; tick keluar saat
-            // s->running==false, SEBELUM rc::rc_shutdown() melepas guest memory.
-            engine_logf("Dummy tick: memulai thread khusus (0x813833cc + stub grafis periodik, 16 ms/tick).");
+            // DETACH (bukan join!): join di sini akan memblokir worker SELAMAMA
+            // (tick thread berjalan sampai s->running=false) -> ANR bila worker
+            // dipanggil dari jalur UI. Tick thread berhenti sendiri saat
+            // s->running=false (APP_CMD_TERM_WINDOW) dan MELEPAS guest memory
+            // sendiri (release_guest_mem via tick_done handshake) — worker
+            // TIDAK boleh rc_shutdown setelah detach (double-free/race).
+            engine_logf("Dummy tick: memulai thread khusus (0x813833cc + HLE "
+                        "BeginScene/EndScene + stub grafis periodik, 16 ms/tick).");
             if (s->tick_thread.joinable()) s->tick_thread.join();
             s->tick_thread = std::thread(dummy_tick_thread, s);
-            if (s->tick_thread.joinable()) s->tick_thread.join();
-            engine_logf("Dummy tick thread selesai — lanjut rc_shutdown.");
+            s->tick_thread.detach();
+            s->tick_spawned.store(true);
+            engine_logf("Dummy tick thread: DETACH (worker lanjut tanpa join; "
+                        "guest memory dilepas tick thread saat berhenti).");
             break;
         }
         // chunk_limit -> lanjut chunk berikutnya.
     }
     t_guest_jmp = nullptr;
     if (s->cpu.running || s->cpu.blocks_run > 0) {
-        engine_logf("Guest loop selesai: total blocks=%llu. Melepas guest memory.",
+        engine_logf("Guest loop selesai: total blocks=%llu.",
                     (unsigned long long)s->cpu.blocks_run);
     } else {
-        engine_logf("Boot loop selesai: total blocks=%llu. Melepas guest memory.",
+        engine_logf("Boot loop selesai: total blocks=%llu.",
                     (unsigned long long)s->cpu.blocks_run);
     }
-    rc::rc_shutdown(s->cpu);
+    if (s->tick_spawned.load()) {
+        // Dummy tick thread di-detach dan MASIH berjalan di sini; ia yang
+        // memanggil rc_shutdown (release_guest_mem) saat loopnya berhenti.
+        // JANGAN rc_shutdown dari sini (double-free / race pada s->cpu).
+        engine_logf("Guest memory: menunggu dummy tick thread melepasnya "
+                    "(release_guest_mem dipanggil di thread itu).");
+    } else {
+        release_guest_mem(s);
+    }
 }
 #endif  // RC_WITH_GAME_CODE
 
@@ -1004,7 +1077,23 @@ void on_cmd(android_app* app, int32_t cmd) {
     case APP_CMD_TERM_WINDOW:
         s->running = false;
         if (s->worker.joinable()) s->worker.join();
-        if (s->tick_thread.joinable()) s->tick_thread.join();
+        // Tick thread SUDAH DETACH (tidak joinable) — JANGAN join di sini: bila
+        // tick thread sedang mengeksekusi hingga 20000 blok guest, join bisa
+        // memblokir UI thread -> ANR. Cukup tunggu BOUNDED 250 ms via handshake
+        // tick_done; kalau belum selesai, lanjut shutdown (tick keluar sendiri,
+        // guest memory dibebaskan proses saat exit).
+        if (s->tick_spawned.load()) {
+            const auto deadline =
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+            while (!s->tick_done.load() &&
+                   std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+            if (!s->tick_done.load()) {
+                engine_logf("TERM_WINDOW: tick thread belum selesai dalam 250 ms "
+                            "(diizinkan lanjut; guest memory dibebaskan proses).");
+            }
+        }
         egl_shutdown(s);
         break;
     case APP_CMD_LOW_MEMORY:
@@ -1019,6 +1108,78 @@ void on_cmd(android_app* app, int32_t cmd) {
     default:
         break;
     }
+}
+
+// === HLE GXM dummy draw =====================================================
+// Stub [HLE_GXM_END_SCENE] (dipaksa oleh tick thread) menaikkan g_hle_cmdlists.
+// Render loop (main thread, GL context current) men-drain counter itu lalu
+// menggambar SATU triangle dummy — state nyata (glUseProgram/VBO) dibangun
+// malas sekali saja. GL TIDAK PERNAH dipanggil dari tick thread (tidak ada
+// EGL context di sana) — aman.
+static void dummy_gl_draw_tri() {
+    static int  dummy_state = 0;   // 0 = belum coba, 1 = siap, 2 = shader gagal
+    static GLuint dummy_prog = 0, dummy_vbo = 0;
+    if (dummy_state == 2) return;
+    if (dummy_state == 0) {
+        static const char* kVs =
+            "attribute vec2 aPos;\n"
+            "void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }\n";
+        static const char* kFs =
+            "precision mediump float;\n"
+            "void main(){ gl_FragColor = vec4(1.0, 0.28, 0.10, 1.0); }\n";
+        GLuint v = glCreateShader(GL_VERTEX_SHADER);
+        GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
+        GLint ok = 0;
+        if (v) {
+            glShaderSource(v, 1, &kVs, nullptr);
+            glCompileShader(v);
+            glGetShaderiv(v, GL_COMPILE_STATUS, &ok);
+        }
+        if (!ok) { __android_log_print(ANDROID_LOG_WARN, "DRAW_DEBUG", "dummy draw: vertex shader gagal compile"); }
+        GLint okf = 0;
+        if (f) {
+            glShaderSource(f, 1, &kFs, nullptr);
+            glCompileShader(f);
+            glGetShaderiv(f, GL_COMPILE_STATUS, &okf);
+        }
+        if (!okf) { __android_log_print(ANDROID_LOG_WARN, "DRAW_DEBUG", "dummy draw: fragment shader gagal compile"); }
+        if (ok && okf) {
+            dummy_prog = glCreateProgram();
+            glAttachShader(dummy_prog, v);
+            glAttachShader(dummy_prog, f);
+            glLinkProgram(dummy_prog);
+            GLint linked = 0;
+            glGetProgramiv(dummy_prog, GL_LINK_STATUS, &linked);
+            if (linked) {
+                const float verts[6] = { -1.0f, -1.0f, -0.84f, -1.0f, -0.92f, -0.84f };
+                glGenBuffers(1, &dummy_vbo);
+                glBindBuffer(GL_ARRAY_BUFFER, dummy_vbo);
+                glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+                dummy_state = 1;
+                engine_logf("DRAW_DEBUG: dummy draw siap (program=%u vbo=%u).", dummy_prog, dummy_vbo);
+            } else {
+                __android_log_print(ANDROID_LOG_WARN, "DRAW_DEBUG", "dummy draw: link program gagal");
+                dummy_state = 2;
+            }
+        } else {
+            dummy_state = 2;
+        }
+        if (v) glDeleteShader(v);
+        if (f) glDeleteShader(f);
+        if (dummy_state != 1) return;
+    }
+    // Dummy state yang diminta HLE: glClearColor dipanggil (state saja; frame
+    // ImGui TIDAK di-glClear). Lalu dummy glDrawArrays (1 triangle nyata).
+    glClearColor(0.02f, 0.031f, 0.06f, 1.0f);
+    glUseProgram(dummy_prog);
+    glBindBuffer(GL_ARRAY_BUFFER, dummy_vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void*)0);
+    glDrawArrays(GL_TRIANGLES, 0, 3);          // <- dummy glDrawArrays
+    glDisableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glUseProgram(0);
 }
 
 void render_loop(AppState* s) {
@@ -1120,8 +1281,25 @@ void render_loop(AppState* s) {
             }
         }
 
+        // HLE GXM: drain counter CmdLists (dinaikkan stub [HLE_GXM_END_SCENE]
+        // yang dipaksa tick thread setiap 5 tick). Saat counter berubah,
+        // jalankan SATU dummy draw nyata (glClearColor + glDrawArrays) di
+        // main thread (GL context current) supaya DRAW_DEBUG menampilkan
+        // CmdLists>0 dan GPU menerima perintah nyata.
+        {
+            static uint32_t lastDrained = 0;
+            const uint32_t cl = rc::g_hle_cmdlists;  // volatile read, 32-bit align
+            if (cl != lastDrained) {
+                dummy_gl_draw_tri();
+                lastDrained = cl;
+                __android_log_print(ANDROID_LOG_DEBUG, "DRAW_DEBUG",
+                    "CmdLists=%u (HLE EndScene drain; dummy glDrawArrays dijalankan)", cl);
+                ui::overlay_logf("DRAW_DEBUG: CmdLists=%u (HLE EndScene drain; dummy glDrawArrays dijalankan)", cl);
+            }
+        }
+
         // Draw call counting (placeholder: ImGui draw calls)
-        int drawCount = ImGui::GetDrawData()->CmdListsCount;
+        int drawCount = ImGui::GetDrawData() ? ImGui::GetDrawData()->CmdListsCount : 0;
         if (frameCount == 0) RENDERLOG("Render: draw calls this frame = %d", drawCount);
 
         frameCount++;

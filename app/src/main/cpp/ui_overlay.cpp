@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -264,15 +265,22 @@ void overlay_toggle_gear() {
     if (!g.gear_visible) g.panel_open = false;
 }
 
+// Mutex untuk overlay_logf: dipanggil dari worker thread, dummy tick thread,
+// DAN main/render thread. fopen/vfprintf/fflush dari thread berbeda tanpa
+// lock bisa saling menimpa isi baris recomp.log (dan UB di beberapa libc).
+std::mutex g_log_mtx;
+
 void overlay_logf(const char* fmt, ...) {
+    std::lock_guard<std::mutex> lk(g_log_mtx);
     va_list args;
     va_start(args, fmt);
-    std::vsnprintf(nullptr, 0, fmt, args);
     va_end(args);
     FILE* f = fopen(g.log_path, "a");
     if (f) {
-        va_start(args, fmt);
-        vfprintf(f, fmt, args);
+        va_list args2;
+        va_start(args2, fmt);
+        vfprintf(f, fmt, args2);
+        va_end(args2);
         fprintf(f, "\n");
         fflush(f);  // FLUSH: pastikan log tertulis sebelum close
         fclose(f);

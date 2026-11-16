@@ -577,6 +577,65 @@ for _a in ARM_STUB_ADDRS:
         _stub_body,
     ))
 
+# [HLE_GXM_BEGIN_SCENE]/[HLE_GXM_END_SCENE] — stub grafis HLE untuk sceGxm*Scene.
+# Game tidak pernah memanggil fungsi gambar (display list kosong), jadi render
+# tidak pernah terjadi. Stub ini dipaksa dipanggil oleh dummy tick thread
+# (lihat android_main.cpp): BeginScene mencatat; EndScene MENAMBAH counter
+# CmdLists milik host — render loop Android (GL context current di sana)
+# men-drain counter itu lalu menjalankan glClearColor + glDrawArrays dummy
+# supaya DRAW_DEBUG menampilkan CmdLists>0.
+# g_hle_cmdlists didefinisikan di android_main.cpp (volatile uint32_t) dan
+# di-increment di sini. Kedua TU menggunakan C++ linkage dengan nama sama.
+# Alamat sengaja di atas 0x81F00000 (TRAMPOLINE) dan di luar memsz guest.
+HLE_GXM_BEGIN_SCENE = 0x81F00010
+HLE_GXM_END_SCENE = 0x81F00020
+FIXES.append((
+    HLE_GXM_BEGIN_SCENE,
+    0,
+    None,  # synthetic block: tiada byte di ELF; verifikasi byte dilewati
+    """    // [HLE_GXM_BEGIN_SCENE] sceGxmBeginScene dummy — menandai frame dimulai.
+    static uint32_t rc_hle_begin_n = 0;
+    ++rc_hle_begin_n;
+#if defined(__ANDROID__)
+    if (rc_hle_begin_n <= 3u || (rc_hle_begin_n % 500u) == 0u) {
+        char _hb[200];
+        snprintf(_hb, sizeof(_hb),
+            "HLE_GXM: sceGxmBeginScene #%u (dummy, guest display list kosong)",
+            rc_hle_begin_n);
+        __android_log_print(ANDROID_LOG_WARN, "GXM_STUB", "%s", _hb);
+        if (rc_dbg_log_hook) rc_dbg_log_hook("GXM_STUB", _hb);
+    }
+#endif
+    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }""",
+))
+FIXES.append((
+    HLE_GXM_END_SCENE,
+    0,
+    None,  # synthetic block: tiada byte di ELF; verifikasi byte dilewati
+    """    // [HLE_GXM_END_SCENE] sceGxmEndScene dummy — CmdLists++ di host.
+    // Render loop Android (GL context current) men-drain counter global ini
+    // lalu menjalankan glClearColor + glDrawArrays dummy (aman: GL hanya
+    // dipanggil dari thread yang punya context current).
+    // NB: blok ini di-compile DI DALAM namespace rc; android_main.cpp
+    // mendefinisikan rc::g_hle_cmdlists (volatile uint32_t).
+    extern volatile uint32_t g_hle_cmdlists;
+    ++g_hle_cmdlists;
+    const uint32_t _ln = g_hle_cmdlists;
+#if defined(__ANDROID__)
+    {
+        char _he[220];
+        snprintf(_he, sizeof(_he),
+            "HLE_GXM: sceGxmEndScene -> DRAW_DEBUG CmdLists=%u "
+            "(host men-drain & menggambar dummy draw)", _ln);
+        __android_log_print(ANDROID_LOG_WARN, "DRAW_DEBUG", "%s", _he);
+        if (_ln <= 3u || (_ln % 500u) == 0u) {
+            if (rc_dbg_log_hook) rc_dbg_log_hook("DRAW_DEBUG", _he);
+        }
+    }
+#endif
+    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }""",
+))
+
 # Trampoline LR untuk dummy tick thread: alamat landing pad yang sah supaya
 # `bx lr` di fungsi paksa (0x813833cc / stub grafis) TIDAK PERNAH mendarat di
 # 0x00000000 (null pointer). Blok ini synthetic (tidak ada byte asli di ELF):
