@@ -34,6 +34,7 @@ extern uint64_t rc_dbg_stub_returns;
 extern uint32_t rc_dbg_hist_pc[16];
 extern uint32_t rc_dbg_hist_n;
 extern uint32_t rc_dbg_hist_i;
+extern uint64_t rc_dbg_step_total;
 typedef void (*rc_dbg_log_fn)(const char* tag, const char* msg);
 extern rc_dbg_log_fn rc_dbg_log_hook;
 bool rc_dbg_has_block(uint32_t pc);
@@ -714,13 +715,16 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
             {
                 const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
                 char hbuf[512]; size_t hp = 0;
-                hp += (size_t)snprintf(hbuf + hp, sizeof(hbuf) - hp, "TRACE blok terakhir (%u):", n);
+                hp += (size_t)snprintf(hbuf + hp, sizeof(hbuf) - hp,
+                    "TRACE blok terakhir (%u, steps=%llu):", n,
+                    (unsigned long long)rc_dbg_step_total);
                 for (uint32_t k = 0; k < n && hp + 12 < sizeof(hbuf); ++k) {
                     const uint32_t idx = (rc_dbg_hist_i + 16u - n + k) & 15u;
                     hp += (size_t)snprintf(hbuf + hp, sizeof(hbuf) - hp, " 0x%08x", rc_dbg_hist_pc[idx]);
                 }
                 engine_logf("%s", hbuf);
                 __android_log_print(ANDROID_LOG_DEBUG, "HALT_DEBUG", "%s", hbuf);
+                if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", hbuf);
             }
             // Jangan matikan emulator: idle loop agar UI tetap responsif.
             // (Jika ini akhir thread/init dengan ret target 0, belum ada game loop

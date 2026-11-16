@@ -75,6 +75,7 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
     rc_dbg_hist_pc[rc_dbg_hist_i] = next_pc;
     rc_dbg_hist_i = (rc_dbg_hist_i + 1u) & 15u;
     if (rc_dbg_hist_n < 16u) ++rc_dbg_hist_n;
+    ++rc_dbg_step_total;
 
     if (max_blocks && blocks_run >= max_blocks) { running = false; return false; }
     const BlockDesc* b = find_block(next_pc);
@@ -167,6 +168,7 @@ rc_dbg_log_fn rc_dbg_log_hook = nullptr;
 uint32_t rc_dbg_hist_pc[16] = {0};
 uint32_t rc_dbg_hist_n = 0;   // jumlah entri valid (<=16)
 uint32_t rc_dbg_hist_i = 0;   // indeks tulis berikutnya
+uint64_t rc_dbg_step_total = 0; // total step_block dieksekusi (debug trace)
 
 // Caller (LR/return addr) terakhir untuk stub ARM tertentu (bantu cari game loop).
 uint32_t rc_dbg_stub_caller_81815464 = 0;

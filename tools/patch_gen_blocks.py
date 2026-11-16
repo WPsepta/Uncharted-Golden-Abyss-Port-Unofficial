@@ -502,12 +502,14 @@ ARM_STUB_ADDRS = [
 _LOG_STUBS = {0x81815464, 0x81815494}
 for _a in ARM_STUB_ADDRS:
     _log = ""
+    _ret = "0xFFFFFFFFu"
     if _a in _LOG_STUBS:
+        _ret = "0u"  # SCE_OK: treat as success so caller/game can proceed
         _log = (
             "#if defined(__ANDROID__)\n"
             "    rc_dbg_stub_caller_%08x = c.r[14];\n"
             "    { static bool rc_stub_logged = false; if (!rc_stub_logged) { rc_stub_logged = true;\n"
-            "      char _sm[160]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%%08x dipanggil (lr/ret=0x%%08x), tapi belum diimplementasi!\", 0x%08x, c.r[14]);\n"
+            "      char _sm[160]; snprintf(_sm, sizeof(_sm), \"Fungsi stub di 0x%%08x dipanggil (lr/ret=0x%%08x), return SCE_OK(0)\", 0x%08x, c.r[14]);\n"
             "      __android_log_print(ANDROID_LOG_WARN, \"STUB_CALL\", \"%%s\", _sm);\n"
             "      if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _sm); } }\n"
             "#endif\n" % (_a, _a)
@@ -516,7 +518,7 @@ for _a in ARM_STUB_ADDRS:
         _a, 0, "00 00 e0 e3 1e ff 2f e1",
         "    // [GEN_FIX %08x] ARM stub: mvn r0,#0 ; bx lr  -> return -1\n" % _a +
         _log +
-        "    c.r[0] = 0xFFFFFFFFu;\n"
+        "    c.r[0] = " + _ret + ";\n"
         "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }",
     ))
 
