@@ -727,29 +727,36 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                 if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", hbuf);
             }
             // Jangan matikan emulator: idle loop agar UI tetap responsif.
-            // Dummy tick: panggil stub grafis 0x81815464 dan 0x81815494 secara periodik
-            // (return SCE_OK) sebagai "denyut" aktivitas, karena module_start sudah selesai.
-            engine_logf("Dummy tick loop: memanggil stub 0x81815464/0x81815494 secara periodik (idle).");
-            auto tick_stub = [&](uint32_t addr) {
-                s->cpu.running = true;
-                s->cpu.faulted = false;
-                s->cpu.next_pc = addr;
-                s->cpu.thumb = 0u;            // ARM stub
-                s->cpu.r[13] = 0x8EFFFF00u;   // SP aman
-                s->cpu.r[14] = 0u;            // LR=0 -> return ke 0 (halt setelah 1 stub)
-                s->cpu.max_blocks = s->cpu.blocks_run + 64ULL;
-                // jangan clear history agar trace tetap berguna
-                s->cpu.run();
-                if (s->cpu.faulted) {
-                    engine_logf("Dummy tick: fault saat stub 0x%08x pc=0x%08x.", addr, s->cpu.current_pc);
-                    s->cpu.faulted = false;
-                }
-            };
+            // Dummy/game-loop tick: jalankan fungsi 0x813833cc berulang (kode asli yang
+            // memanggil stub 0x818156d4/0x81815464/0x81815494 di area 0x81383400) sebagai
+            // aktivitas render/logic, karena module_start sudah selesai (ret_pc==0).
+            engine_logf("Dummy tick loop: menjalankan 0x813833cc (area 0x81383400/stub grafis) secara periodik (idle).");
             uint32_t tick = 0;
             while (s->running.load()) {
-                if ((tick++ % 10u) == 0u) { // ~1 detik
-                    tick_stub(0x81815464u);
-                    tick_stub(0x81815494u);
+                // Jalankan beberapa iterasi per tick agar game "berdetak"
+                for (int iter = 0; iter < 5 && s->running.load(); ++iter) {
+                    s->cpu.running = true;
+                    s->cpu.faulted = false;
+                    s->cpu.next_pc = 0x813833ccu; // ARM entry: prologue, panggil stub, epilogue, return
+                    s->cpu.thumb = 0u;
+                    s->cpu.r[0] = 0u; s->cpu.r[1] = 0u; s->cpu.r[2] = 0u; s->cpu.r[3] = 0u;
+                    s->cpu.r[4] = 0u;
+                    s->cpu.r[13] = 0x8EFFFF00u;   // SP aman
+                    s->cpu.r[14] = 0u;            // LR=0 -> return ke 0 (selesai 1 iterasi)
+                    s->cpu.max_blocks = s->cpu.blocks_run + 20000ULL;
+                    // jangan clear history agar trace tetap berguna
+                    s->cpu.run();
+                    if (s->cpu.faulted) {
+                        engine_logf("Dummy tick: fault iter=%d pc=0x%08x next=0x%08x.",
+                                    iter, s->cpu.current_pc, s->cpu.next_pc);
+                        s->cpu.faulted = false;
+                        break;
+                    }
+                }
+                if ((tick++ % 10u) == 0u) {
+                    engine_logf("Dummy tick heartbeat: tick=%u blocks=%llu pc=0x%08x steps=%llu",
+                                tick, (unsigned long long)s->cpu.blocks_run,
+                                s->cpu.current_pc, (unsigned long long)rc_dbg_step_total);
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
