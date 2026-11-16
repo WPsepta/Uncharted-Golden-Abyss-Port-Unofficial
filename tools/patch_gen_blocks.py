@@ -577,6 +577,31 @@ for _a in ARM_STUB_ADDRS:
         _stub_body,
     ))
 
+# Trampoline LR untuk dummy tick thread: alamat landing pad yang sah supaya
+# `bx lr` di fungsi paksa (0x813833cc / stub grafis) TIDAK PERNAH mendarat di
+# 0x00000000 (null pointer). Blok ini synthetic (tidak ada byte asli di ELF):
+# hanya menghentikan eksekusi guest secara bersih + mencatat hitungan.
+TRAMPOLINE_ADDR = 0x81F00000
+FIXES.append((
+    TRAMPOLINE_ADDR,
+    0,
+    None,  # synthetic block: tiada byte di ELF; verifikasi byte dilewati
+    """    // [TICK_TRAMPOLINE] landing pad untuk lr dummy tick thread (android_main.cpp).
+    // bx lr dari forced call mendarat di sini -> halt bersih (next_pc=0),
+    // dummy tick thread mendeteksi next_pc==0 lalu lanjut tick berikutnya.
+    static uint32_t rc_tick_trampoline_n = 0;
+    ++rc_tick_trampoline_n;
+    if (rc_dbg_log_hook && (rc_tick_trampoline_n <= 3u || (rc_tick_trampoline_n % 1000u) == 0u)) {
+        char _tm[140];
+        snprintf(_tm, sizeof(_tm),
+            "[TRAMPOLINE] forced-call return landing #%u (lr valid, halt bersih, tick lanjut)",
+            rc_tick_trampoline_n);
+        rc_dbg_log_hook("TRAMPOLINE", _tm);
+    }
+    c.next_pc = 0u;  // halt bersih: step_block berhenti tanpa merusak state
+    return;""",
+))
+
 REGISTRY_BLOCK = """// [GEN_FIX_REGISTRY] Blok perbaikan manual (tools/patch_gen_blocks.py).
 extern const BlockDesc rc_blocks_part999[];
 extern const size_t rc_blocks_part999_count;
@@ -647,6 +672,8 @@ def verify_bytes(elf: Path, fixes) -> list[str]:
 
     errors = []
     for addr, _thumb, expect, _body in fixes:
+        if expect is None:
+            continue  # synthetic block (mis. [TICK_TRAMPOLINE]) — tiada byte di ELF
         blob = None
         for va, off, fsz in segs:
             if va <= addr < va + fsz:

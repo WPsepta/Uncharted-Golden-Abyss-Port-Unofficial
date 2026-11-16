@@ -550,7 +550,12 @@ static void log_guest_fault(AppState* s, const char* where) {
 //     (next_pc==0 / ret_pc==0), PC dipaksa balik ke game-loop entry
 //     0x813833cc (area setelah 0x81383400).
 // Recovery fault (SIGSEGV) memakai thread_local sigjmp_buf milik thread ini.
+// 0x813833cc: prologue fungsi game loop; 0x81f00000: [TICK_TRAMPOLINE] —
+// landing pad lr valid (bukan 0x00000000) untuk semua paksa pemanggilan.
+// Trampoline diregistrasikan di fix-table oleh tools/patch_gen_blocks.py;
+// bloknya menyetel next_pc=0 -> halt bersih -> tick thread lanjut tick berikut.
 static constexpr uint32_t kDummyGameLoopEntry = 0x813833ccu;  // ARM prologue 0x813833cc
+static constexpr uint32_t kTickTrampoline = 0x81f00000u;      // [TICK_TRAMPOLINE]
 
 struct GuestCtxBackup {
     uint32_t r[16];
@@ -585,6 +590,18 @@ static void guest_ctx_restore(rc::Cpu& c) {
     c.next_pc = g.next_pc; c.current_pc = g.current_pc;
     c.thumb = g.thumb;
     c.running = g.running; c.faulted = g.faulted;
+    // LR tidak boleh 0x00000000 pasca-restore: 0 = return ke null pointer.
+    // Ganti dengan [TICK_TRAMPOLINE] supaya eksekusi guest berikutnya
+    // mendarat di blok trampoline yang valid (halt bersih).
+    if (c.r[14] == 0u) {
+        static uint32_t rc_lr_subst_n = 0;
+        if (rc_lr_subst_n < 3u || (rc_lr_subst_n % 1000u) == 0u) {
+            engine_logf("guest_ctx_restore: lr==0 di-restore -> diganti "
+                        "trampoline 0x%08x (bukan return ke null).", kTickTrampoline);
+        }
+        ++rc_lr_subst_n;
+        c.r[14] = kTickTrampoline;
+    }
 }
 
 static void dummy_tick_thread(AppState* s) {
@@ -610,16 +627,22 @@ static void dummy_tick_thread(AppState* s) {
         } else {
             t_guest_armed = 1;
             // Paksa eksekusi fungsi game-loop asli (ARM, entry 0x813833cc).
+            // r0-r4 diisi pointer/args FAKE CONTEXT yang valid (0x81010000),
+            // bukan 0 — supaya GXM_STUB/STUB_CALL tidak pernah mencetak
+            // r0=0x00000000. lr = [TICK_TRAMPOLINE], BUKAN 0.
             for (int iter = 0; iter < 5 && s->running.load(); ++iter) {
                 c.running = true;
                 c.faulted = false;
                 c.next_pc = kDummyGameLoopEntry;
                 c.current_pc = kDummyGameLoopEntry;
                 c.thumb = 0u;
-                c.r[0] = 0u; c.r[1] = 0u; c.r[2] = 0u; c.r[3] = 0u;
-                c.r[4] = 0u;
-                c.r[13] = 0x8EFFFF00u;              // SP aman
-                c.r[14] = 0u;                       // LR=0 -> return ke 0
+                c.r[0] = 0x81010000u;   // fake context pointer (r0 valid)
+                c.r[1] = 0x40u;
+                c.r[2] = 0x81010000u;   // fake command buffer ptr
+                c.r[3] = 0x40u;
+                c.r[4] = 0x81010000u;   // arg utama (r0 = r4 di 0x813833fa)
+                c.r[13] = 0x8EFFFF00u;  // SP aman
+                c.r[14] = kTickTrampoline; // LR valid, bukan 0x00000000
                 c.max_blocks = c.blocks_run + 20000ULL;
                 c.run();
                 if (c.faulted) {
@@ -630,7 +653,7 @@ static void dummy_tick_thread(AppState* s) {
                     break;
                 }
             }
-            // Paksa panggil stub grafis setiap 5 tick.
+            // Paksa panggil stub grafis setiap 5 tick, dengan arg valid + lr trampoline.
             if ((tick % 5u) == 0u) {
                 const uint32_t stubs[2] = {0x81815464u, 0x81815494u};
                 for (uint32_t addr : stubs) {
@@ -639,8 +662,12 @@ static void dummy_tick_thread(AppState* s) {
                     c.next_pc = addr;
                     c.current_pc = addr;
                     c.thumb = 0u;
+                    c.r[0] = 0x81010000u;   // fake context
+                    c.r[1] = 0x40u;
+                    c.r[2] = 0x81010000u;   // fake command buffer ptr
+                    c.r[3] = 0x40u;
                     c.r[13] = 0x8EFFFF00u;
-                    c.r[14] = 0u;
+                    c.r[14] = kTickTrampoline; // LR valid, bukan 0x00000000
                     c.max_blocks = c.blocks_run + 64ULL;
                     c.run();
                     if (c.faulted) c.faulted = false;
@@ -663,8 +690,9 @@ static void dummy_tick_thread(AppState* s) {
         if ((tick % 10u) == 0u) {
             const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
             engine_logf("Dummy tick heartbeat: tick=%llu blocks=%llu pc=0x%08x "
-                        "steps=%llu hist=%u", (unsigned long long)tick,
-                        (unsigned long long)c.blocks_run, c.current_pc,
+                        "lr=0x%08x r0=0x%08x steps=%llu hist=%u",
+                        (unsigned long long)tick, (unsigned long long)c.blocks_run,
+                        c.current_pc, c.r[14], c.r[0],
                         (unsigned long long)rc_dbg_step_total, n);
         }
         ++tick;
