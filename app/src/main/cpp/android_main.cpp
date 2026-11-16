@@ -33,6 +33,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdarg>
+#include <cstdint>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -432,10 +433,42 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
     fclose(f);
     engine_logf("ELF ditemukan: %ld byte, magic=%02x%02x%02x%02x",
                 fsize, magic[0], magic[1], magic[2], magic[3]);
-    if (nread < 4 || memcmp(magic, "\x7f" "ELF", 4) != 0) {
-        engine_logf("BUKAN ELF yang valid (magic salah). File mungkin masih "
-                    "terenkripsi/terbungkus PFS. Boot dibatalkan.");
+    if (nread >= 4 && memcmp(magic, "SCE\0", 4) == 0) {
+        engine_logf("INI FILE SELF VITA (magic SCE\\0), BUKAN ELF. SELF masih "
+                    "terenkripsi/terbungkus dan tidak bisa dibaca rc_load_elf_data. "
+                    "Gunakan ELF hasil dekripsi, mis. /storage/emulated/0/Download/"
+                    "uncharted_decrypted.elf. Boot dibatalkan.");
         return;
+    }
+    if (nread < 4 || memcmp(magic, "\x7f" "ELF", 4) != 0) {
+        engine_logf("BUKAN ELF yang valid (magic=%02x%02x%02x%02x). File ini "
+                    "kemungkinan kontainer terenkripsi (SELF/PKG) atau hasil "
+                    "ekstrak yang belum didekripsi. Boot dibatalkan.",
+                    magic[0], magic[1], magic[2], magic[3]);
+        return;
+    }
+    // Validasi tambahan: ELF Vita harus ELF32-LE ARM dengan entry di guest window.
+    // Menolak lebih awal file yang header-nya ELF tapi segmennya masih terenkripsi.
+    {
+        FILE* vf = fopen(elf_path, "rb");
+        if (vf) {
+            unsigned char eh[52] = {0};
+            size_t got = fread(eh, 1, sizeof(eh), vf);
+            fclose(vf);
+            if (got >= sizeof(eh)) {
+                uint32_t e_entry = 0, e_phoff = 0;
+                memcpy(&e_entry, eh + 24, 4);
+                memcpy(&e_phoff, eh + 28, 4);
+                if (eh[4] != 1 || eh[5] != 1 || (e_entry < 0x81000000u) ||
+                    e_phoff == 0 || e_phoff >= (uint32_t)fsize) {
+                    engine_logf("Header ELF tidak cocok untuk guest Vita "
+                                "(class=%u endian=%u entry=0x%08x phoff=0x%x). "
+                                "Kemungkinan header saja yang terdekripsi. "
+                                "Boot dibatalkan.", eh[4], eh[5], e_entry, e_phoff);
+                    return;
+                }
+            }
+        }
     }
 
     if (!rc::rc_boot(s->cpu)) {

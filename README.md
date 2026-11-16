@@ -102,6 +102,16 @@ berjalan.
 ELF game **tidak pernah** dibundel ke APK/repo; file itu tetap di perangkat
 Anda. Tanpa ELF, flag ini hanya mencetak error dan boot dilewati.
 
+**Penting — SELF vs ELF.** `uncharted.self` / `eboot.bin` dari PKG **tidak bisa**
+diboot langsung: file itu kontainer SELF Sony yang terenkripsi, bukan ELF. Boot
+hanya menerima ELF32-LE ARM hasil dekripsi (magic `7f 45 4c 46`, `e_entry` di
+guest window `0x81000000+`, segmen `PT_LOAD` plaintext). Build ini menolak
+dengan pesan jelas bila yang diberikan file ber-magic `SCE\0` (SELF) atau ELF
+yang baru header-nya saja yang terdekripsi. Dekripsi SELF butuh title key milik
+dump Anda sendiri (FAGDec/NoNpDrm di Vita asli); tidak ada dekripsi di dalam
+aplikasi.
+
+
 ## GitHub Actions
 
 Workflow `build_apk.yml`:
