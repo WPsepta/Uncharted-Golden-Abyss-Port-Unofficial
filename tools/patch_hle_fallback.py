@@ -76,6 +76,15 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
     rc_dbg_hist_i = (rc_dbg_hist_i + 1u) & 15u;
     if (rc_dbg_hist_n < 16u) ++rc_dbg_hist_n;
     ++rc_dbg_step_total;
+    // Log berkala per step counter supaya bukti instruksi benar-benar dieksekusi
+    // (membantu isolasi kenapa trace/hist kadang dibaca 0 di build sebelumnya).
+    if ((rc_dbg_step_total % 1000u) == 0u) {
+        char _st[160];
+        std::snprintf(_st, sizeof(_st), "[STEP_HIST] step pc=0x%08x next=0x%08x steps=%llu",
+                      next_pc, next_pc, (unsigned long long)rc_dbg_step_total);
+        RC_LOGE("%s", _st);
+        if (rc_dbg_log_hook) rc_dbg_log_hook("STEP_HIST", _st);
+    }
 
     if (max_blocks && blocks_run >= max_blocks) { running = false; return false; }
     const BlockDesc* b = find_block(next_pc);

@@ -188,6 +188,14 @@ FIXES = [
     static uint32_t rc_loop_8138979e = 0;
     { uint32_t a = c.r[5], b = 0x1u; uint32_t v = ((c.r[5]) + (0x1u)); c.r[5] = v; RC_ADD_FLAGS(a, b, 0u); }  // adds r5, #1
     { uint32_t a = c.r[4], b = 0x4u; uint32_t v = ((c.r[4]) + (0x4u)); c.r[4] = v; RC_ADD_FLAGS(a, b, 0u); }  // adds r4, #4
+    // Substitusi command fake bila slot list masih bernilai 0 (render/stub belum mengisi)
+    {
+        uint32_t _eaddr = c.r[4];
+        uint32_t _val = c.in_range(_eaddr, 4u) ? c.read32(_eaddr) : 0u;
+        if (_val == 0u) {
+            c.write32(_eaddr, 0x81010000u); // fake command value -> render stub bisa proceed
+        }
+    }
     RC_SUB_FLAGS(c.r[5], c.r[6], 0u);  // cmp r5, r6
     // Debug: element pointer/value for this iteration
     uint32_t _elem_addr = c.r[4] - 4u;
@@ -543,12 +551,30 @@ for _a in ARM_STUB_ADDRS:
             "      ++rc_stub_log_n; }\n"
             "#endif\n" % (_a, _a, _a)
         )
-    FIXES.append((
-        _a, 0, "00 00 e0 e3 1e ff 2f e1",
+    _stub_body = (
         "    // [GEN_FIX %08x] ARM stub: mvn r0,#0 ; bx lr  -> return -1\n" % _a +
         _log +
         "    c.r[0] = " + _ret + ";\n"
-        "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }",
+        "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+    )
+    if _ret == "0u":
+        # Untuk stub SCE_OK (0x81815464/0x81815494): beri fake context/command
+        # buffer yang valid di guest memory supaya arg yang diberikan caller
+        # (r2=*list slot) tidak jadi 0/TIDAK VALID. Setup sebelum return.
+        _stub_body = _stub_body.replace(
+            "    c.r[0] = " + _ret + ";\n",
+            "    c.r[2] = 0x81010000u;\n"
+            "    c.r[0] = 0x81010000u;\n"
+            "    c.r[1] = 0x40u;\n"
+            "    c.r[3] = 0x40u;\n"
+            "    c.write32(0x81010000u, 0x11223344u);\n"
+            "    c.r[0] = 0u;  // SCE_OK\n"
+            "    c.r[0] = " + _ret + ";\n",
+            1,
+        )
+    FIXES.append((
+        _a, 0, "00 00 e0 e3 1e ff 2f e1",
+        _stub_body,
     ))
 
 REGISTRY_BLOCK = """// [GEN_FIX_REGISTRY] Blok perbaikan manual (tools/patch_gen_blocks.py).
