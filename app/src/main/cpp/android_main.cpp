@@ -727,9 +727,27 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                 if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", hbuf);
             }
             // Jangan matikan emulator: idle loop agar UI tetap responsif.
-            // (Jika ini akhir thread/init dengan ret target 0, belum ada game loop
-            //  yang diketahui untuk dilanjutkan secara aman.)
+            // Dummy tick: coba jalankan fungsi 0x81389768 berulang (setup frame sendiri,
+            // memanggil stub display-like 0x81815464/0x81815494 lalu return). Ini memberi
+            // "aktivitas" thread palsu saat module_start sudah selesai (ret_pc==0).
+            engine_logf("Dummy tick loop: mencoba memanggil 0x81389768 secara periodik (idle).");
+            uint32_t tick = 0;
             while (s->running.load()) {
+                if ((tick++ % 10u) == 0u) { // ~1 detik
+                    s->cpu.running = true;
+                    s->cpu.faulted = false;
+                    s->cpu.next_pc = 0x81389768u; // prologue: push {r4-r6,lr} + sub sp,0x200
+                    s->cpu.thumb = 1u;
+                    s->cpu.r[13] = 0x8EFFFF00u;   // SP aman
+                    s->cpu.r[14] = 0u;            // LR=0 -> return ke 0 (akan di-handle)
+                    s->cpu.max_blocks = s->cpu.blocks_run + 50000ULL;
+                    rc_dbg_clear();
+                    s->cpu.run();
+                    if (s->cpu.faulted) {
+                        engine_logf("Dummy tick: fault di pc=0x%08x (tick %u).", s->cpu.current_pc, tick);
+                        s->cpu.faulted = false; // coba lagi nanti
+                    }
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
             break;

@@ -111,7 +111,22 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
     b->fn(*this);
     ++blocks_run;
     if (faulted) return false;
-    if (next_pc == 0) { running = false; return false; }
+    if (next_pc == 0) {
+        // Dump trace saat halt (next_pc==0) agar selalu terlihat di log.
+        char tbuf[512]; size_t tp = 0;
+        const uint32_t tn = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
+        tp += (size_t)std::snprintf(tbuf + tp, sizeof(tbuf) - tp,
+            "[STEP_HIST] halt: trace blok terakhir (%u, steps=%llu):", tn,
+            (unsigned long long)rc_dbg_step_total);
+        for (uint32_t k = 0; k < tn && tp + 12 < sizeof(tbuf); ++k) {
+            const uint32_t idx = (rc_dbg_hist_i + 16u - tn + k) & 15u;
+            tp += (size_t)std::snprintf(tbuf + tp, sizeof(tbuf) - tp, " 0x%08x", rc_dbg_hist_pc[idx]);
+        }
+        RC_LOGE("%s", tbuf);
+        if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", tbuf);
+        running = false;
+        return false;
+    }
     return true;
 }"""
 
