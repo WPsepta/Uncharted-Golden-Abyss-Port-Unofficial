@@ -27,8 +27,13 @@ extern const char* rc_dbg_unimpl_what;
 extern uint32_t rc_dbg_last_pc;
 extern uint32_t rc_dbg_last_nid;
 extern uint64_t rc_dbg_hle_calls;
+extern uint32_t rc_dbg_missing_pc;
+extern uint32_t rc_dbg_missing_from;
+extern uint32_t rc_dbg_stub_missing;
+extern uint64_t rc_dbg_stub_returns;
 typedef void (*rc_dbg_log_fn)(const char* tag, const char* msg);
 extern rc_dbg_log_fn rc_dbg_log_hook;
+bool rc_dbg_has_block(uint32_t pc);
 void rc_dbg_clear(void);
 }
 #endif
@@ -51,6 +56,7 @@ void rc_dbg_clear(void);
 #include <chrono>
 #include <cstdarg>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -412,6 +418,14 @@ static thread_local volatile sig_atomic_t t_guest_armed = 0;
 static const char* kDefaultElfPath =
     "/storage/emulated/0/Download/uncharted_decrypted.elf";
 
+// Entry cadangan. e_entry di header ELF game ini (0x81005e35 -> 0x81005e34)
+// jatuh 2 byte di tengah instruksi `bl`, sehingga blok hasil rekompilasi di
+// sana tidak valid. module_start yang asli ada di 0x81009ffd, tetapi blok
+// 0x81009ffc juga "invalid" di gen. Blok valid pertama yang bisa dieksekusi
+// adalah crt0 di 0x8100a004 (target `bl` dari module_start).
+// Bisa dioverride di settings.ini: guest_entry=0x8100a004 (0 = pakai e_entry).
+static constexpr uint32_t kDefaultGuestEntry = 0x8100a004u;
+
 // Maks blok guest per chunk. run() dipanggil per-chunk supaya kita bisa:
 //   - mencetak progres (pc + jumlah blok),
 //   - berhenti jika render thread/Activity dimatikan,
@@ -488,6 +502,12 @@ static void log_guest_fault(AppState* s, const char* where) {
         }
         fault_logf("KESIMPULAN: BUKAN HLE, BUKAN pointer NULL — "
                     "translator tidak punya blok valid untuk instruksi ini.");
+    } else if (rc_dbg_missing_pc != 0) {
+        fault_logf("penyebab=NO_BLOCK target=0x%08x (dipanggil dari 0x%08x)",
+                   rc_dbg_missing_pc, rc_dbg_missing_from);
+        fault_logf("KESIMPULAN: translator tidak menghasilkan blok untuk alamat "
+                   "ini (fungsi tidak terdeteksi / ARM-vs-Thumb salah). Ini BUKAN "
+                   "HLE dan BUKAN pointer NULL.");
     } else if (rc_dbg_fault_seen) {
         const uint32_t a = rc_dbg_fault_addr;
         fault_logf("penyebab=memory %s addr=0x%08x (pc=0x%08x)%s",
@@ -546,6 +566,7 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
     }
     // Validasi tambahan: ELF Vita harus ELF32-LE ARM dengan entry di guest window.
     // Menolak lebih awal file yang header-nya ELF tapi segmennya masih terenkripsi.
+    uint32_t header_entry = 0;
     {
         FILE* vf = fopen(elf_path, "rb");
         if (vf) {
@@ -556,6 +577,7 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                 uint32_t e_entry = 0, e_phoff = 0;
                 memcpy(&e_entry, eh + 24, 4);
                 memcpy(&e_phoff, eh + 28, 4);
+                header_entry = e_entry;
                 if (eh[4] != 1 || eh[5] != 1 || (e_entry < 0x81000000u) ||
                     e_phoff == 0 || e_phoff >= (uint32_t)fsize) {
                     engine_logf("Header ELF tidak cocok untuk guest Vita "
@@ -581,8 +603,54 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
         rc::rc_shutdown(s->cpu);
         return;
     }
+    // --- Entry override -----------------------------------------------------
+    // e_entry dari header tidak bisa dipakai (jatuh di tengah instruksi bl).
+    // guest_entry=... di settings.ini memilih entry lain; 0 = pakai e_entry.
+    uint32_t entry_pc = s->cpu.next_pc;
+    uint32_t entry_thumb = s->cpu.thumb;
+    const std::string ge = read_ini_value(s->ini_path, "guest_entry");
+    uint32_t wanted = kDefaultGuestEntry;
+    bool from_ini = false;
+    if (!ge.empty()) {
+        const char* begin = ge.c_str();
+        char* end = nullptr;
+        const unsigned long v = std::strtoul(begin, &end, 0);
+        if (end && end != begin) { wanted = static_cast<uint32_t>(v); from_ini = true; }
+        else engine_logf("guest_entry='%s' tidak valid (pakai default 0x%08x).",
+                         ge.c_str(), kDefaultGuestEntry);
+    }
+    if (wanted == 0u) {
+        engine_logf("guest_entry=0: memakai e_entry dari header ELF.");
+    } else if (wanted < rc::kMemBase || wanted >= rc::kMemBase + rc::kMemSize) {
+        engine_logf("guest_entry=0x%08x di luar guest window (0x%08x..0x%08x) — "
+                    "diabaikan, pakai e_entry.", wanted, rc::kMemBase,
+                    rc::kMemBase + rc::kMemSize);
+    } else {
+        entry_pc = wanted & ~1u;
+        entry_thumb = wanted & 1u;
+    }
+    s->cpu.next_pc = entry_pc;
+    s->cpu.current_pc = entry_pc;
+    s->cpu.thumb = entry_thumb;
+    s->cpu.cpsr = (s->cpu.cpsr & ~rc::kFlagT) | (entry_thumb ? rc::kFlagT : 0u);
+    engine_logf("GUEST_ENTRY: header_elf=0x%08x module_start=0x81009ffd "
+                "target_bl=0x8100a004 konfigurasi=%s efektif=0x%08x thumb=%u "
+                "blok_ada=%d",
+                header_entry, from_ini ? ge.c_str() : "(default)",
+                entry_pc, entry_thumb,
+                rc_dbg_has_block(entry_pc) ? 1 : 0);
+
     engine_logf("ELF data ter-load. Entry pc=0x%08x thumb=%d. Mulai eksekusi guest...",
                 s->cpu.next_pc, (int)s->cpu.thumb);
+
+    // Fungsi tanpa blok rekompilasi diperlakukan sebagai stub return -1 supaya
+    // guest bisa melewati stub awal dan log menunjukkan hambatan sebenarnya.
+    // Bisa dimatikan: settings.ini stub_missing_blocks=0 (batas 10000 return).
+    const std::string sm = read_ini_value(s->ini_path, "stub_missing_blocks");
+    rc_dbg_stub_missing = sm.empty() ? 1u : (ini_truthy(sm) ? 1u : 0u);
+    engine_logf("stub_missing_blocks=%u%s — fungsi tanpa blok dianggap stub "
+                "return -1 (batas 10000).",
+                rc_dbg_stub_missing, sm.empty() ? " (default)" : "");
 
     // HLE_MISSING / RC_UNIMPL dari recomp.cpp juga masuk ke tab Log
     // (recomp.log), bukan hanya logcat.
@@ -629,6 +697,7 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
             break;
         }
         if (s->cpu.blocks_run == before) {
+            log_guest_fault(s, "stall");
             engine_logf("Guest STALL: tidak ada blok rekompilasi di pc=0x%08x. "
                         "Eksekusi dihentikan (app tetap hidup).", s->cpu.next_pc);
             break;

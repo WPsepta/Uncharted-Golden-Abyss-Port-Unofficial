@@ -79,7 +79,8 @@ tools/gen_local.sh
 `settings.ini` (app-private files dir, dibagi launcher & game):
 `fps=30|60|0`, `touch_preset=0|1|2`, `sensitivity=0-100`, `show_fps=0|1`,
 `vsync=0|1`, `res_scale=50-100`, `asset_dir=...`, `asset_uri=...`,
-`use_game_elf=0|1`, `game_elf_path=/path/ke/uncharted_decrypted.elf`.
+`use_game_elf=0|1`, `game_elf_path=/path/ke/uncharted_decrypted.elf`,
+`guest_entry=0x8100a004`, `stub_missing_blocks=0|1`.
 
 ### Debug: boot engine dari ELF milik sendiri (`use_game_elf`)
 
@@ -93,22 +94,50 @@ thread worker memanggil:
 3. `rc::Cpu::run()` per-chunk 2 juta blok, dengan log progres
    `ENGINE_DEBUG: guest chunk ... blocks=... pc=...`.
 
+**Entry override (`guest_entry`).** `e_entry` di header ELF game ini adalah
+`0x81005e35` → `pc 0x81005e34`, yang jatuh **2 byte di tengah** instruksi
+`bl` (tidak ada instruksi yang mulai di alamat itu), jadi blok di sana
+`RC_UNIMPL`. `module_start` yang asli ada di `0x81009ffd`, tetapi blok
+`0x81009ffc` juga invalid. Blok valid pertama adalah crt0 di `0x8100a004`
+(target `bl` dari `module_start`). Karena itu build ini default memakai:
+
+```ini
+guest_entry=0x8100a004   # 0 = kembali memakai e_entry dari header ELF
+```
+
+Saat boot, baris `GUEST_ENTRY: header_elf=... efektif=... blok_ada=1|0`
+mencatat entry yang dipakai dan apakah blok rekompilasi benar-benar ada
+(probe tanpa mengeksekusi).
+
 Setiap import PS Vita yang belum dipetakan dicetak sebagai
 `HLE_MISSING: ... (NID: 0x........) pemanggil_pc=0x........ r0..r3=...` lalu
 **return 0** (tidak crash). Entri pertama diberi tag `HLE_MISSING[PERTAMA]`
 supaya fungsi sistem pertama yang dipanggil game mudah dikenali. Pesan ini
 masuk ke logcat **dan** tab Log (`recomp.log`).
 
-Saat guest berhenti karena fault, blok `GUEST_FAULT` mencetak penyebab yang
-sebenarnya, bukan sekadar "memori di luar range":
+Saat guest berhenti, blok `GUEST_FAULT` mencetak penyebab yang sebenarnya,
+bukan sekadar "memori di luar range":
 
 - register `r0..r12`, `sp`, `lr`, `cpsr`, `next_pc`, jumlah blok,
 - 8 byte instruksi mentah di pc,
 - `penyebab=RC_UNIMPL @0x... "invalid"` bila translator tidak punya blok valid
   (bukan HLE, bukan pointer NULL), atau
+- `penyebab=NO_BLOCK target=0x...` bila CPU melompat ke alamat yang tidak
+  punya blok rekompilasi sama sekali (rizin tidak mendeteksi fungsi itu /
+  salah mode ARM-vs-Thumb), atau
 - `penyebab=memory READ/WRITE addr=0x...` (ditandai `NULL POINTER!` bila
   alamatnya 0), atau
 - status HLE terakhir: NID + pemanggil pc + total panggilan.
+
+Loader juga diperbaiki: `e_phentsize`/`e_phnum` adalah 16-bit, dulu di-`memcpy`
+ke `uint32_t` tanpa inisialisasi sehingga 2 byte atas berisi sampah stack dan
+loop bisa membaca program header fiktif (melewati `PT_LOAD` asli).
+
+`stub_missing_blocks=1` (default) membuat fungsi yang **tidak punya blok
+rekompilasi** diperlakukan seperti stub: `r0 = -1`, lalu kembali ke `lr`.
+Tanpa ini guest berhenti di stub pertama dan penyebab sebenarnya tidak
+terlihat. Batasnya 10000 return supaya tidak bisa berputar tanpa henti. Set
+`stub_missing_blocks=0` untuk perilaku ketat (berhenti di blok hilang pertama).
 
 Fault guest (SIGSEGV/SIGBUS/SIGILL/SIGFPE) di thread boot dipulihkan lewat
 `siglongjmp` — aplikasi tetap hidup dan render loop terus berjalan. Log

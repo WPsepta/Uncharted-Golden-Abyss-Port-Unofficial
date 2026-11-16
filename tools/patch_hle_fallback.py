@@ -34,6 +34,65 @@ GLOBALS_MARK = "[FAULT_DBG_GLOBALS]"
 FAULT_MARK = "[FAULT_DBG_FAULT]"
 UNIMPL_MARK = "[FAULT_DBG_UNIMPL]"
 HLE_MARK = "[HLE_FALLBACK]"
+LOADER_MARK = "[LOADER_PHDR_FIX]"
+PROBE_MARK = "[ENTRY_PROBE]"
+BLOCK_MISS_MARK = "[BLOCK_MISS]"
+
+BLOCK_MISS_OLD = """    if (!b) {
+        RC_LOGE("no recompiled block at 0x%08x (from 0x%08x)", next_pc, current_pc);
+        return false;
+    }"""
+
+BLOCK_MISS_NEW = """    if (!b) {
+        // [BLOCK_MISS] catat target yang tidak punya blok rekompilasi supaya
+        // android_main.cpp bisa melaporkannya sebagai penyebab berhenti.
+        rc_dbg_missing_pc = next_pc;
+        rc_dbg_missing_from = current_pc;
+        RC_LOGE("no recompiled block at 0x%08x (from 0x%08x)", next_pc, current_pc);
+        // Mode debug: anggap fungsi tanpa blok sebagai stub yang return -1 lalu
+        // kembali ke LR. Tanpa ini guest berhenti di stub pertama dan penyebab
+        // yang sebenarnya (lubang translator / instruksi NEON) tidak terlihat.
+        if (rc_dbg_stub_missing && r[kRegLr] != 0) {
+            if (rc_dbg_stub_returns >= 10000u) {
+                RC_LOGE("batas %llu stub return tercapai di 0x%08x",
+                        (unsigned long long)rc_dbg_stub_returns, next_pc);
+                return false;
+            }
+            ++rc_dbg_stub_returns;
+            r[0] = 0xFFFFFFFFu;
+            next_pc = r[kRegLr] & ~1u;
+            thumb = r[kRegLr] & 1u;
+            cpsr = (cpsr & ~kFlagT) | (thumb ? kFlagT : 0);
+            ++blocks_run;
+            return true;
+        }
+        return false;
+    }"""
+
+LOADER_OLD = """    uint32_t phoff, phentsize, phnum;
+    std::memcpy(&phoff, eh + 28, 4);
+    std::memcpy(&phentsize, eh + 42, 2);
+    std::memcpy(&phnum, eh + 44, 2);"""
+
+LOADER_NEW = """    // [LOADER_PHDR_FIX] e_phentsize/e_phnum adalah 16-bit. Dulu nilainya
+    // di-memcpy ke uint32_t tanpa inisialisasi, jadi 2 byte atas berisi sampah
+    // stack: loop membaca program header fiktif dan PT_LOAD asli bisa terlewat.
+    uint32_t phoff = 0;
+    uint16_t phentsize = 0, phnum = 0;
+    std::memcpy(&phoff, eh + 28, 4);
+    std::memcpy(&phentsize, eh + 42, 2);
+    std::memcpy(&phnum, eh + 44, 2);
+    RC_LOG("ELF phdr: phoff=%u phentsize=%u phnum=%u",
+           phoff, (unsigned)phentsize, (unsigned)phnum);"""
+
+PROBE_BLOCK = r'''
+// [ENTRY_PROBE] Dipakai android_main.cpp untuk mencatat apakah entry yang
+// dipilih benar-benar punya blok hasil rekompilasi (tanpa menjalankannya).
+namespace rc {
+bool rc_has_block(uint32_t pc) { return find_block(pc) != nullptr; }
+}
+extern "C" bool rc_dbg_has_block(uint32_t pc) { return rc::rc_has_block(pc); }
+'''
 
 GLOBALS_BLOCK = r'''
 // [FAULT_DBG_GLOBALS] Telemetri fault guest. Ditambahkan otomatis oleh
@@ -49,6 +108,10 @@ const char* rc_dbg_unimpl_what = "";  // deskripsi RC_UNIMPL ("invalid", ...)
 uint32_t rc_dbg_last_pc = 0;          // pc pemanggil HLE terakhir
 uint32_t rc_dbg_last_nid = 0;         // NID HLE terakhir
 uint64_t rc_dbg_hle_calls = 0;        // total panggilan ke rc_hle_dispatch
+uint32_t rc_dbg_missing_pc = 0;       // pc tanpa blok rekompilasi
+uint32_t rc_dbg_missing_from = 0;     // pc pemanggil saat blok tidak ditemukan
+uint32_t rc_dbg_stub_missing = 0;     // 1 = anggap fungsi tanpa blok sebagai stub -1
+uint64_t rc_dbg_stub_returns = 0;     // jumlah stub return (tidak di-reset per chunk)
 
 // Hook log opsional: diisi android_main.cpp supaya pesan HLE_MISSING /
 // RC_UNIMPL juga masuk ke recomp.log (tab Log), bukan hanya logcat.
@@ -62,6 +125,8 @@ void rc_dbg_clear(void) {
     rc_dbg_fault_seen = 0;
     rc_dbg_unimpl_pc = 0;
     rc_dbg_unimpl_what = "";
+    rc_dbg_missing_pc = 0;
+    rc_dbg_missing_from = 0;
 }
 }
 '''
@@ -273,12 +338,36 @@ def main(argv: list[str]) -> int:
             return 1
         changed.append("hle")
 
+    # 5) Loader ELF: perbaiki tipe e_phentsize/e_phnum (uninitialized memcpy).
+    if LOADER_MARK not in text:
+        if LOADER_OLD not in text:
+            print(f"error: blok pembaca program header tidak ditemukan di {path}",
+                  file=sys.stderr)
+            return 1
+        text = text.replace(LOADER_OLD, LOADER_NEW, 1)
+        changed.append("loader")
+
+    # 6) Probe blok: rc_dbg_has_block() untuk log GUEST_ENTRY.
+    if PROBE_MARK not in text:
+        text = text.rstrip() + "\n" + PROBE_BLOCK
+        changed.append("probe")
+
+    # 7) step_block(): catat pc target yang tidak punya blok.
+    if BLOCK_MISS_MARK not in text:
+        if BLOCK_MISS_OLD not in text:
+            print(f"error: badan 'if (!b)' step_block() tidak ditemukan di {path}",
+                  file=sys.stderr)
+            return 1
+        text = text.replace(BLOCK_MISS_OLD, BLOCK_MISS_NEW, 1)
+        changed.append("block_miss")
+
     if not changed:
         print(f"OK: {path} sudah dipatch penuh — tidak diubah.")
         return 0
 
     # Sanity check: semua penanda harus ada setelah patch.
-    missing = [m for m in (GLOBALS_MARK, FAULT_MARK, UNIMPL_MARK, HLE_MARK)
+    missing = [m for m in (GLOBALS_MARK, FAULT_MARK, UNIMPL_MARK, HLE_MARK,
+                           LOADER_MARK, PROBE_MARK, BLOCK_MISS_MARK)
                if m not in text]
     if missing:
         print(f"error: penanda hilang setelah patch: {missing}", file=sys.stderr)
