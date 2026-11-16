@@ -253,7 +253,18 @@ FIXES = [
         c.next_pc = ret_pc;
 #if defined(__ANDROID__)
         if (c.next_pc == 0u) {
-            const char* msg = "0x813897a6: return target is 0 (thread/init end) -> keep emulator alive (idle)";
+            // Pseudo-return: paksa lanjut agar emulator tidak idle/halt.
+            // Target dipilih dari ret_pc valid pertama yang teramati (0x81386d94,
+            // blok bkpt->no-op, lanjut ke 0x81386d96) dan SP di-reset aman.
+            const uint32_t force_pc = 0x81386d94u;
+            const uint32_t force_sp = 0x8EFFFF00u;
+            c.r[13] = force_sp;
+            c.r[0] = 0u; c.r[1] = 0u; c.r[2] = 0u; c.r[3] = 0u;
+            c.next_pc = force_pc;
+            char msg[192];
+            snprintf(msg, sizeof(msg),
+                "0x813897a6: ret_pc==0 -> FORCE PC ke 0x%08x sp=0x%08x (pseudo-thread, jangan idle)",
+                force_pc, force_sp);
             __android_log_print(ANDROID_LOG_WARN, "HALT_DEBUG", "%s", msg);
             if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", msg);
         }
