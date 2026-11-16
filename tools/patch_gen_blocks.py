@@ -144,6 +144,7 @@ FIXES = [
         1,
         "13 68",
         """    // [GEN_FIX 0x81389574] rev + loop
+    if (c.r[0] == 0u) { c.next_pc = 0x81389586u; return; }  // guard: avoid infinite loop on r0==0
     c.r[3] = c.read32(c.r[2] + 0x0u);                      // ldr r3, [r2, #0]
     c.r[2] = c.r[2] + 0x4u;                                // adds r2, #4
     { uint32_t _v = c.r[3]; c.r[3] = ((_v & 0xFFu) << 24) | (((_v >> 8) & 0xFFu) << 16) | (((_v >> 16) & 0xFFu) << 8) | ((_v >> 24) & 0xFFu); }  // rev r3, r3
@@ -152,6 +153,21 @@ FIXES = [
     c.r[1] = c.r[1] + 0x4u;                                // add.w r1, r1, #4
     if (c.cond(0x1)) { c.next_pc = 0x81389574u; return; }  // bne
     c.next_pc = 0x81389586u; return;""",
+    ),
+    (
+        0x81389592,
+        1,
+        "30 aa",
+        """    // [GEN_FIX 0x81389592]
+    c.r[2] = ((c.r[13]) + (0xc0u));
+    c.r[10] = c.read32(c.r[13] + 0x114u);
+    c.write32(c.r[13] + 0x118u, c.r[5]);
+    c.r[14] = c.r[2] + c.r[0];
+    c.r[0] = c.r[13] + (c.r[1] << 2);
+    c.r[0] = c.r[0] + 0xc0u;
+    c.write32(c.r[13] + 0x104u, c.r[0]);
+    c.r[14] = c.r[14] + 0x1u;
+    c.next_pc = 0x81389728u; return;""",
     ),
 ]
 
