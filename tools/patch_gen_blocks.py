@@ -233,7 +233,6 @@ FIXES = [
         }
         // Dump trace blok terakhir jika tersedia
         {
-            extern "C" { extern uint64_t rc_dbg_step_total; }
             const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
             char tbuf[512]; size_t tp = 0;
             tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp,
