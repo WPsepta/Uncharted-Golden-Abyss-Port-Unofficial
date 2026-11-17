@@ -326,6 +326,21 @@ FIXES = [
         return;
     }""",
     ),
+    (
+        0x810A61EC,
+        1,
+        "70 b5 04 1c",
+        """    // [GEN_FIX 0x810a61ec] CRT TLS getter: mrc p15 c13 (RC_UNIMPL) -> r1 = TLS ptr
+    c.r[13] -= 0x10u;
+    c.write32(c.r[13] + 0x0u, c.r[4]);
+    c.write32(c.r[13] + 0x4u, c.r[5]);
+    c.write32(c.r[13] + 0x8u, c.r[6]);
+    c.write32(c.r[13] + 0xcu, c.r[14]);
+    c.r[4] = c.r[0];
+    // mrc p15,0,r1,c13,c0,3 -> TLS pointer di guest memory
+    c.r[1] = 0x81970000u;
+    c.next_pc = 0x810a61f4u; return;""",
+    ),
 ]
 
 ARM_STUB_ADDRS = [
