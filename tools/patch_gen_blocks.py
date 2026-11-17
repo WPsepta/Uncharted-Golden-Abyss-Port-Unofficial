@@ -341,7 +341,7 @@ FIXES = [
     c.r[1] = 0x81970000u;  // TLS ptr (ganti mrc p15,c13)
     c.r[2] = 0x2f9u;
     { uint32_t v = 0x1u; c.r[0] = v; RC_SET_NZ(v); }
-    c.r[3] = c.read8((c.r[4] + 0x2f8u));
+    c.r[3] = c.in_range((c.r[4] + 0x2f8u), 1u) ? c.read8((c.r[4] + 0x2f8u)) : 0u;
     RC_SUB_FLAGS(c.r[3], 0x0u, 0u);
     // [MEMGUARD] guest manggil dg r0=0 -> r4=0, write ke 0x2f9 (luar window).
     // Abaikan write di luar guest window supaya tidak fault.

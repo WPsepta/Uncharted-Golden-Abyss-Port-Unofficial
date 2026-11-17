@@ -227,6 +227,17 @@ void rc_dbg_clear(void) {
 '''
 
 FAULT_BODY = r'''static void fault(Cpu& c, uint32_t addr, bool write) {
+    // [NULLPAGE_TOLERATE] Akses ke null-page (addr < 0x10000) adalah
+    // null-pointer + offset dari stub CRT yang belum punya state; abaikan
+    // supaya guest tidak berhenti. Alamat lain tetap fault seperti biasa.
+    if (addr < 0x10000u) {
+        static uint32_t _np_n = 0;
+        if (_np_n++ < 5u || (_np_n % 1000u) == 0u) {
+            RC_LOGE("nullpage %s ignored: addr=0x%08x pc=0x%08x",
+                    write ? "write" : "read", addr, c.current_pc);
+        }
+        return;
+    }
     // [FAULT_DBG_FAULT] catat akses memori yang gagal untuk GUEST_FAULT.
     rc_dbg_fault_addr = addr;
     rc_dbg_fault_pc = c.current_pc;
