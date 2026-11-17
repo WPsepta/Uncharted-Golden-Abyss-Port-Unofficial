@@ -73,8 +73,8 @@ BLOCK_MISS_NEW = """    if (!b) {
 STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
     // [STEP_HIST] rekam PC blok yang akan dieksekusi (trace sebelum halt/fault).
     rc_dbg_hist_pc[rc_dbg_hist_i] = next_pc;
-    rc_dbg_hist_i = (rc_dbg_hist_i + 1u) & 15u;
-    if (rc_dbg_hist_n < 16u) ++rc_dbg_hist_n;
+    rc_dbg_hist_i = (rc_dbg_hist_i + 1u) & 31u;
+    if (rc_dbg_hist_n < 32u) ++rc_dbg_hist_n;
     ++rc_dbg_step_total;
     // Log berkala per step counter supaya bukti instruksi benar-benar dieksekusi
     // (membantu isolasi kenapa trace/hist kadang dibaca 0 di build sebelumnya).
@@ -122,14 +122,22 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
     if (faulted) return false;
     if (next_pc == 0) {
         // Dump trace saat halt (next_pc==0) agar selalu terlihat di log.
-        char tbuf[512]; size_t tp = 0;
-        const uint32_t tn = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
+        char tbuf[1024]; size_t tp = 0;
+        const uint32_t tn = rc_dbg_hist_n > 32u ? 32u : rc_dbg_hist_n;
         tp += (size_t)std::snprintf(tbuf + tp, sizeof(tbuf) - tp,
             "[STEP_HIST] halt: trace blok terakhir (%u, steps=%llu):", tn,
             (unsigned long long)rc_dbg_step_total);
         for (uint32_t k = 0; k < tn && tp + 12 < sizeof(tbuf); ++k) {
-            const uint32_t idx = (rc_dbg_hist_i + 16u - tn + k) & 15u;
+            const uint32_t idx = (rc_dbg_hist_i + 32u - tn + k) & 31u;
             tp += (size_t)std::snprintf(tbuf + tp, sizeof(tbuf) - tp, " 0x%08x", rc_dbg_hist_pc[idx]);
+        }
+        // HLE terakhir sebelum halt — NID + pc pemanggil (8 entri).
+        const uint32_t hn = rc_dbg_hle_hist_n > 8u ? 8u : rc_dbg_hle_hist_n;
+        for (uint32_t k = 0; k < hn && tp + 40 < sizeof(tbuf); ++k) {
+            const uint32_t idx = (rc_dbg_hle_hist_i + 8u - hn + k) & 7u;
+            tp += (size_t)std::snprintf(tbuf + tp, sizeof(tbuf) - tp,
+                "\n HLE#%u NID=0x%08x pc=0x%08x", k,
+                rc_dbg_hle_hist_nid[idx], rc_dbg_hle_hist_pc[idx]);
         }
         RC_LOGE("%s", tbuf);
         if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", tbuf);
@@ -189,10 +197,17 @@ typedef void (*rc_dbg_log_fn)(const char* tag, const char* msg);
 rc_dbg_log_fn rc_dbg_log_hook = nullptr;
 
 // [STEP_HIST] ring buffer PC blok terakhir (untuk trace sebelum halt/fault).
-uint32_t rc_dbg_hist_pc[16] = {0};
-uint32_t rc_dbg_hist_n = 0;   // jumlah entri valid (<=16)
+uint32_t rc_dbg_hist_pc[32] = {0};
+uint32_t rc_dbg_hist_n = 0;   // jumlah entri valid (<=32)
 uint32_t rc_dbg_hist_i = 0;   // indeks tulis berikutnya
 uint64_t rc_dbg_step_total = 0; // total step_block dieksekusi (debug trace)
+
+// [HLE_HIST] 8 panggilan HLE terakhir (NID + pc pemanggil). Menjawab:
+// "apakah game memanggil HLE tertentu tepat sebelum halt?"
+uint32_t rc_dbg_hle_hist_nid[8] = {0};
+uint32_t rc_dbg_hle_hist_pc[8] = {0};
+uint32_t rc_dbg_hle_hist_n = 0;
+uint32_t rc_dbg_hle_hist_i = 0;
 
 // Caller (LR/return addr) terakhir untuk stub ARM tertentu (bantu cari game loop).
 uint32_t rc_dbg_stub_caller_81815464 = 0;
@@ -244,6 +259,11 @@ HLE_BODY = r'''int rc_hle_dispatch(Cpu& cpu, uint32_t nid) {
     rc_dbg_last_pc = cpu.current_pc;
     rc_dbg_last_nid = nid;
     ++rc_dbg_hle_calls;
+    // [HLE_HIST] rekam NID + pc pemanggil (8 terakhir).
+    rc_dbg_hle_hist_nid[rc_dbg_hle_hist_i] = nid;
+    rc_dbg_hle_hist_pc[rc_dbg_hle_hist_i] = cpu.current_pc;
+    rc_dbg_hle_hist_i = (rc_dbg_hle_hist_i + 1u) & 7u;
+    if (rc_dbg_hle_hist_n < 8u) ++rc_dbg_hle_hist_n;
 
     for (size_t i = 0; i < rc_hle_count; ++i) {
         if (rc_hle_table[i].nid == nid) {

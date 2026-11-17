@@ -587,6 +587,7 @@ static void log_guest_fault(AppState* s, const char* where) {
 // Trampoline diregistrasikan di fix-table oleh tools/patch_gen_blocks.py;
 // bloknya menyetel next_pc=0 -> halt bersih -> tick thread lanjut tick berikut.
 static constexpr uint32_t kDummyGameLoopEntry = 0x813833ccu;  // ARM prologue 0x813833cc
+static uint32_t g_tick_entry_override = kDummyGameLoopEntry;
 static constexpr uint32_t kTickTrampoline = 0x81f00000u;      // [TICK_TRAMPOLINE]
 // Stub HLE grafis (didaftarkan di tools/patch_gen_blocks.py, synthetic blocks):
 //   0x81F00010 [HLE_GXM_BEGIN_SCENE]  sceGxmBeginScene dummy
@@ -652,6 +653,23 @@ static void dummy_tick_thread(AppState* s) {
     rc::Cpu& c = s->cpu;
     sigjmp_buf jb;
     t_guest_jmp = &jb;   // thread_local — khusus thread ini
+    // EKSPERIMEN (tugas user): tick_arg_mode=1 memanggil 0x813833cc dengan
+    // argumen 0 (bukan fake context). Default 0 = fake context yang stabil.
+    // tick_entry=0x... bisa mengganti entry game-loop untuk eksperimen lain.
+    int tick_arg_mode = 0;
+    {
+        const std::string m = read_ini_value(s->ini_path, "tick_arg_mode");
+        if (!m.empty()) tick_arg_mode = static_cast<int>(std::strtol(m.c_str(), nullptr, 0));
+        const std::string e = read_ini_value(s->ini_path, "tick_entry");
+        if (!e.empty()) {
+            const unsigned long v = std::strtoul(e.c_str(), nullptr, 0);
+            if (v >= rc::kMemBase && v < rc::kMemBase + rc::kMemSize) {
+                g_tick_entry_override = static_cast<uint32_t>(v);
+            }
+        }
+        engine_logf("[TICK] tick_arg_mode=%d entry=0x%08x (settings.ini)",
+                    tick_arg_mode, g_tick_entry_override);
+    }
     // ANR guard: turunkan prioritas thread ini (nice 10) supaya UI/main thread
     // Android SELALU menang atas CPU; beri nama thread untuk cek via debugger.
     setpriority(PRIO_PROCESS, gettid(), 10);
@@ -704,14 +722,24 @@ static void dummy_tick_thread(AppState* s) {
             for (int iter = 0; iter < 5 && s->running.load(); ++iter) {
                 c.running = true;
                 c.faulted = false;
-                c.next_pc = kDummyGameLoopEntry;
-                c.current_pc = kDummyGameLoopEntry;
+                c.next_pc = g_tick_entry_override;
+                c.current_pc = g_tick_entry_override;
                 c.thumb = 0u;
-                c.r[0] = 0x81010000u;   // fake context pointer (r0 valid)
-                c.r[1] = 0x40u;
-                c.r[2] = 0x81010000u;   // fake command buffer ptr
-                c.r[3] = 0x40u;
-                c.r[4] = 0x81010000u;   // arg utama (r0 = r4 di 0x813833fa)
+                if (tick_arg_mode == 1) {
+                    // EKSPERIMEN: argumen NOL — uji apakah fungsi butuh state.
+                    c.r[0] = 0u; c.r[1] = 0u; c.r[2] = 0u; c.r[3] = 0u; c.r[4] = 0u;
+                    if (iter == 0 && (tick % 50u) == 0u) {
+                        engine_logf("[TICK_ARG_ZERO] entry=0x%08x arg r0-r4=0 — "
+                                    "eksperimen (jika fault, lihat GUEST_FAULT)",
+                                    g_tick_entry_override);
+                    }
+                } else {
+                    c.r[0] = 0x81010000u;   // fake context pointer (r0 valid)
+                    c.r[1] = 0x40u;
+                    c.r[2] = 0x81010000u;   // fake command buffer ptr
+                    c.r[3] = 0x40u;
+                    c.r[4] = 0x81010000u;   // arg utama (r0 = r4 di 0x813833fa)
+                }
                 c.r[13] = 0x8EFFFF00u;  // SP aman
                 c.r[14] = kTickTrampoline; // LR valid, bukan 0x00000000
                 c.max_blocks = c.blocks_run + 20000ULL;
@@ -765,7 +793,7 @@ static void dummy_tick_thread(AppState* s) {
         // thread masih hidup tanpa membanjiri logcat/recomp.log (fopen/fflush
         // tiap tick justru menekan I/O eMMC -> risiko ANR).
         if ((tick % 50u) == 0u) {
-            const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
+            const uint32_t n = rc_dbg_hist_n > 32u ? 32u : rc_dbg_hist_n;
             engine_logf("Dummy tick heartbeat: tick=%llu blocks=%llu pc=0x%08x "
                         "lr=0x%08x r0=0x%08x steps=%llu hist=%u",
                         (unsigned long long)tick, (unsigned long long)c.blocks_run,
@@ -969,13 +997,13 @@ static void boot_guest_elf(AppState* s, const char* elf_path) {
                         s->cpu.current_pc, s->cpu.next_pc);
             // Trace: blok terakhir yang dieksekusi (ring buffer, urutan kronologis).
             {
-                const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
+                const uint32_t n = rc_dbg_hist_n > 32u ? 32u : rc_dbg_hist_n;
                 char hbuf[512]; size_t hp = 0;
                 hp += (size_t)snprintf(hbuf + hp, sizeof(hbuf) - hp,
                     "TRACE blok terakhir (%u, steps=%llu):", n,
                     (unsigned long long)rc_dbg_step_total);
                 for (uint32_t k = 0; k < n && hp + 12 < sizeof(hbuf); ++k) {
-                    const uint32_t idx = (rc_dbg_hist_i + 16u - n + k) & 15u;
+                    const uint32_t idx = (rc_dbg_hist_i + 32u - n + k) & 31u;
                     hp += (size_t)snprintf(hbuf + hp, sizeof(hbuf) - hp, " 0x%08x", rc_dbg_hist_pc[idx]);
                 }
                 engine_logf("%s", hbuf);

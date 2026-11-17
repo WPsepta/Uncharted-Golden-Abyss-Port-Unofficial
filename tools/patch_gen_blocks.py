@@ -33,6 +33,25 @@ REGISTRY_MARK = "[GEN_FIX_REGISTRY]"
 LOOKUP_MARK = "[GEN_FIX_LOOKUP]"
 
 # ---------------------------------------------------------------------------
+# Peta stub import hollow -> NID asli (di-generate dari ELF import table).
+# Semua stub ARM hollow (mvn r0,#0 ; bx lr) DIALIHKAN ke rc_hle_dispatch(nid)
+# supaya setiap import yang dipanggil guest tercatat di HLE_MISSING dengan
+# NID + pc + arg, dan NID yang terdaftar di rc_hle_table mendapat handler nyata.
+# ---------------------------------------------------------------------------
+_STUB_MAP_INC = Path(__file__).resolve().parent / "stub_nid_map.inc"
+STUB_NID_MAP = {}
+if _STUB_MAP_INC.exists():
+    _ns: dict = {}
+    exec(_STUB_MAP_INC.read_text(encoding="utf-8"), _ns)
+    STUB_NID_MAP = _ns["STUB_NID_MAP"]
+else:  # fallback minimal bila file generate hilang (tetap bisa build)
+    STUB_NID_MAP = {}
+
+# NID RESMI (vita-headers / ScarletNX / vita2hos) untuk handler nyata.
+NID_CREATE_THREAD = 0xC5C11EE7  # sceKernelCreateThread
+NID_START_THREAD  = 0xF08DE149  # sceKernelStartThread
+
+# ---------------------------------------------------------------------------
 # Tabel perbaikan.
 #
 # Setiap entri: (alamat, thumb, byte_asli, badan_c++)
@@ -257,13 +276,27 @@ FIXES = [
         }
         // Dump trace blok terakhir jika tersedia
         {
-            const uint32_t n = rc_dbg_hist_n > 16u ? 16u : rc_dbg_hist_n;
-            char tbuf[512]; size_t tp = 0;
+            const uint32_t n = rc_dbg_hist_n > 32u ? 32u : rc_dbg_hist_n;
+            char tbuf[1024]; size_t tp = 0;
             tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp,
                 "TRACE blok terakhir (%u, steps=%llu):", n, (unsigned long long)rc_dbg_step_total);
             for (uint32_t k = 0; k < n && tp + 12 < sizeof(tbuf); ++k) {
-                const uint32_t idx = (rc_dbg_hist_i + 16u - n + k) & 15u;
+                const uint32_t idx = (rc_dbg_hist_i + 32u - n + k) & 31u;
                 tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp, " 0x%08x", rc_dbg_hist_pc[idx]);
+            }
+            // [HLE_HIST] 8 import terakhir sebelum halt + total panggilan.
+            {
+                const uint32_t hn = rc_dbg_hle_hist_n > 8u ? 8u : rc_dbg_hle_hist_n;
+                for (uint32_t k = 0; k < hn && tp + 44 < sizeof(tbuf); ++k) {
+                    const uint32_t idx = (rc_dbg_hle_hist_i + 8u - hn + k) & 7u;
+                    tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp,
+                        " | HLE#%u NID=0x%08x pc=0x%08x", k,
+                        rc_dbg_hle_hist_nid[idx], rc_dbg_hle_hist_pc[idx]);
+                }
+                tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp,
+                    " | lastNID=0x%08x hle_calls=%llu stub_returns=%llu",
+                    rc_dbg_last_nid, (unsigned long long)rc_dbg_hle_calls,
+                    (unsigned long long)rc_dbg_stub_returns);
             }
             __android_log_print(ANDROID_LOG_DEBUG, "HALT_DEBUG", "%s", tbuf);
             if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", tbuf);
@@ -524,8 +557,21 @@ ARM_STUB_ADDRS = [
 ]
 
 # Perluas FIXES dengan stub ARM (mvn r0,#0 ; bx lr) di area 0x81815xxx.
+# ---------------------------------------------------------------------------
+# 2026-11: SEMUA stub import hollow yang punya NID diketahui (STUB_NID_MAP,
+# 431 entri dari import table ELF) DIALIHKAN ke rc_hle_dispatch(nid asli).
+# Efek:
+#   - setiap import yang dipanggil guest tercatat di HLE_MISSING (NID + pc +
+#     r0..r3) — sekarang kita bisa LIHAT stub mana yang dipanggil sebelum halt;
+#   - NID yang terdaftar di rc_hle_table (CreateThread/StartThread resmi,
+#     NID 0xC5C11EE7/0xF08DE149) mendapat handler nyata;
+#   - NID lain otomatis SCE_OK(0) menggantikan -1 (game bisa lanjut).
+# Dua stub special 0x81815464/0x81815494 dipertahankan (fake context) karena
+# tick thread memanggilnya langsung di loop.
+# ---------------------------------------------------------------------------
 _LOG_STUBS = {0x81815464, 0x81815494}
-for _a in ARM_STUB_ADDRS:
+_ALL_STUB_ADDRS = sorted(set(ARM_STUB_ADDRS) | set(STUB_NID_MAP.keys()))
+for _a in _ALL_STUB_ADDRS:
     _log = ""
     _ret = "0xFFFFFFFFu"
     if _a in _LOG_STUBS:
@@ -551,16 +597,12 @@ for _a in ARM_STUB_ADDRS:
             "      ++rc_stub_log_n; }\n"
             "#endif\n" % (_a, _a, _a)
         )
-    _stub_body = (
-        "    // [GEN_FIX %08x] ARM stub: mvn r0,#0 ; bx lr  -> return -1\n" % _a +
-        _log +
-        "    c.r[0] = " + _ret + ";\n"
-        "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
-    )
-    if _ret == "0u":
-        # Untuk stub SCE_OK (0x81815464/0x81815494): beri fake context/command
-        # buffer yang valid di guest memory supaya arg yang diberikan caller
-        # (r2=*list slot) tidak jadi 0/TIDAK VALID. Setup sebelum return.
+        _stub_body = (
+            "    // [GEN_FIX %08x] ARM stub: mvn r0,#0 ; bx lr  -> return -1\n" % _a +
+            _log +
+            "    c.r[0] = " + _ret + ";\n"
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+        )
         _stub_body = _stub_body.replace(
             "    c.r[0] = " + _ret + ";\n",
             "    c.r[2] = 0x81010000u;\n"
@@ -572,10 +614,44 @@ for _a in ARM_STUB_ADDRS:
             "    c.r[0] = " + _ret + ";\n",
             1,
         )
+    elif _a in STUB_NID_MAP:
+        _nid, _lbl = STUB_NID_MAP[_a]
+        # Body HLE: dispatch ke rc_hle_dispatch(nid asli) dengan log STUB_CALL
+        # throttled (first 3 + tiap 500) — ini BUKTI NID apa yang dipanggil guest.
+        _log = (
+            "#if defined(__ANDROID__)\n"
+            "    { static uint32_t rc_hle_stub_n = 0;\n"
+            "      ++rc_hle_stub_n;\n"
+            "      if (rc_hle_stub_n <= 3u || (rc_hle_stub_n %% 500u) == 0u) {\n"
+            "        char _hs[260]; snprintf(_hs, sizeof(_hs),\n"
+            "          \"STUB_CALL: NID=0x%%08x name=%%s caller=0x%%08x lr=0x%%08x \"\n"
+            "          \"r0=0x%%08x r1=0x%%08x r2=0x%%08x r3=0x%%08x [#%%u]\",\n"
+            f"          0x{_nid:08x}u, \"{_lbl}\", c.current_pc, c.r[14], c.r[0], c.r[1], c.r[2], c.r[3],\n"
+            "          rc_hle_stub_n);\n"
+            "        __android_log_print(ANDROID_LOG_WARN, \"STUB_CALL\", \"%%s\", _hs);\n"
+            "        if (rc_dbg_log_hook) rc_dbg_log_hook(\"STUB_CALL\", _hs);\n"
+            "      }\n"
+            "    }\n"
+            "#endif\n"
+        )
+        _stub_body = (
+            f"    // [GEN_FIX {_a:08x}] ARM stub hollow -> HLE dispatch NID 0x{_nid:08x} ({_lbl})\n" +
+            _log +
+            f"    c.r[0] = static_cast<uint32_t>(::rc::rc_hle_dispatch(c, 0x{_nid:08x}u));\n" +
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+        )
+    else:
+        _stub_body = (
+            "    // [GEN_FIX %08x] ARM stub: mvn r0,#0 ; bx lr  -> return -1\n" % _a +
+            _log +
+            "    c.r[0] = " + _ret + ";\n"
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+        )
     FIXES.append((
         _a, 0, "00 00 e0 e3 1e ff 2f e1",
         _stub_body,
     ))
+
 
 # [HLE_GXM_BEGIN_SCENE]/[HLE_GXM_END_SCENE] — stub grafis HLE untuk sceGxm*Scene.
 # Game tidak pernah memanggil fungsi gambar (display list kosong), jadi render
@@ -778,10 +854,17 @@ def emit_fix_file(fixes) -> str:
         'extern "C" {',
         "    typedef void (*rc_dbg_log_fn)(const char*, const char*);",
         "    extern rc_dbg_log_fn rc_dbg_log_hook;",
-        "    extern uint32_t rc_dbg_hist_pc[16];",
+        "    extern uint32_t rc_dbg_hist_pc[32];",
         "    extern uint32_t rc_dbg_hist_n;",
         "    extern uint32_t rc_dbg_hist_i;",
         "    extern uint64_t rc_dbg_step_total;",
+        "    extern uint32_t rc_dbg_hle_calls;",
+        "    extern uint32_t rc_dbg_hle_hist_nid[8];",
+        "    extern uint32_t rc_dbg_hle_hist_pc[8];",
+        "    extern uint32_t rc_dbg_hle_hist_n;",
+        "    extern uint32_t rc_dbg_hle_hist_i;",
+        "    extern uint32_t rc_dbg_last_nid;",
+        "    extern uint64_t rc_dbg_stub_returns;",
         "    extern uint32_t rc_dbg_stub_caller_81815464;",
         "    extern uint32_t rc_dbg_stub_caller_81815494;",
         "}",
@@ -866,48 +949,30 @@ def patch_lookup(path: Path) -> bool:
 # sceKernelStartThread with real std::thread runners; other functions are
 # stubbed to SCE_OK so the binary can continue.
 HLE_TABLE_ENTRIES = [
-    (0x03e23af6, "sceKernelCreateThread"),
-    (0x0c8a38e1, "sceKernelStartThread"),
-    (0x15129174, "sceKernelExitThread"),
-    (0x1a372ec8, "sceKernelSleepThread"),
-    (0x1bbde3d9, "sceKernelDelayThread"),
-    (0x1d17decf, "sceKernelSuspendThread"),
-    (0x4b675d05, "sceKernelResumeThread"),
-    (0x6ed2e2dc, "sceKernelRotateThreadReadyQueue"),
-    (0x879e6ebd, "sceKernelChangeThreadPriority"),
-    (0xa2d81f9e, "sceKernelGetThreadId"),
-    (0xbd0139f2, "sceKernelReferThreadStatus"),
-    (0xcbe235c7, "sceKernelWaitThreadEnd"),
-    (0xcc18fbae, "sceKernelGetThreadExitStatus"),
-    (0xdb32948a, "sceKernelCreateCallback"),
-    (0xe6b761d1, "sceKernelNotifyCallback"),
+    # Handler nyata (NID RESMI vita-headers/ScarletNX/vita2hos).
+    # Game ini TIDAK mengimpor dua NID ini via SceThreadmgr — didaftarkan
+    # untuk berjaga-jaga bila dipanggil via jalur lain; stub hollow biasa
+    # tetap SCE_OK lewat cabang default rc_hle_dispatcher.
+    (0xc5c11ee7, "sceKernelCreateThread"),
+    (0xf08de149, "sceKernelStartThread"),
+    # 15 import SceThreadmgr yang BENAR-BENAR ada di ELF game.
+    (0x03e23af6, "_sceKernelGetSemaInfo"),
+    (0x0c8a38e1, "sceKernelExitThread"),
+    (0x15129174, "SceThreadmgr_imp_2"),
+    (0x1a372ec8, "sceKernelUnlockMutex"),
+    (0x1bbde3d9, "sceKernelDeleteThread"),
+    (0x1d17decf, "sceKernelExitDeleteThread"),
+    (0x4b675d05, "sceKernelDelayThread"),
+    (0x6ed2e2dc, "sceKernelSignalCond"),
+    (0x879e6ebd, "sceKernelDeleteCond"),
+    (0xa2d81f9e, "SceThreadmgr_imp_10"),
+    (0xbd0139f2, "sceKernelChangeThreadPriority"),
+    (0xcbe235c7, "SceThreadmgr_imp_12"),
+    (0xcc18fbae, "SceThreadmgr_imp_13"),
+    (0xdb32948a, "sceKernelDeleteSema"),
+    (0xe6b761d1, "sceKernelSignalSema"),
 ]
-
-# GXM NIDs needed for real rendering; we stub them as well (SCE_OK).
-# The actual HLE GXM BeginScene/EndScene are already fixed in the code; these
-# are the import stubs that the guest calls. For now we just return 0.
-GXM_NIDS = [
-    (0x008402c6, "sceGxmMapUniformBuffer"),
-    (0x029b4f1c, "sceGxmSetViewport"),
-    (0x0389861d, "sceGxmSetScissor"),
-    (0x05032658, "sceGxmSetDepthTest"),
-    (0x06752183, "sceGxmSetStencilTest"),
-    (0x06ff9151, "sceGxmSetBlendFunc"),
-    (0x0733d8ae, "sceGxmBeginScene"),  # entry point (but HLE fix replaces this address?)
-    (0x099134f5, "sceGxmSetVertexShader"),
-    (0x0b94c50a, "sceGxmSetFragmentShader"),
-    (0x0c44acd7, "sceGxmSetUniformBuffer"),
-    (0x11dc8dc9, "sceGxmSetPixelUnpackState"),
-    (0x12625c34, "sceGxmGetDisplayFrameBuffer"),
-    (0x126a3eb3, "sceGxmGetRenderingStatus"),
-    (0x12aaa7af, "sceGxmSyncObject"),
-    (0x1625d348, "sceGxmCreateVertexBuffer"),
-    (0x17cf46b9, "sceGxmSetVertexBuffer"),
-    (0x1ca9fe0b, "sceGxmDraw"),
-    (0x207af96b, "sceGxmEndScene"),
-]
-
-ALL_HLE_ENTRIES = HLE_TABLE_ENTRIES + GXM_NIDS
+ALL_HLE_ENTRIES = HLE_TABLE_ENTRIES
 
 
 def patch_hle_table(path: Path) -> bool:
@@ -1065,9 +1130,9 @@ int rc_hle_threadmgr_start_thread(Cpu& cpu, uint32_t uid, uint32_t arg) {
 
 int rc_hle_dispatcher(Cpu& cpu, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) {
     switch (rc_dbg_last_nid) {
-        case 0x03e23af6u:  // sceKernelCreateThread
+        case 0xC5C11EE7u:  // sceKernelCreateThread (NID RESMI)
             return rc_hle_threadmgr_create_thread(cpu, r0, r1, r2, r3);
-        case 0x0c8a38e1u:  // sceKernelStartThread
+        case 0xF08DE149u:  // sceKernelStartThread (NID RESMI)
             return rc_hle_threadmgr_start_thread(cpu, r0, r1);
         default:
             return 0;  // other SceThreadmgr/GXM stubs: SCE_OK
