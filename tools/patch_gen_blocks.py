@@ -343,7 +343,9 @@ FIXES = [
     { uint32_t v = 0x1u; c.r[0] = v; RC_SET_NZ(v); }
     c.r[3] = c.read8((c.r[4] + 0x2f8u));
     RC_SUB_FLAGS(c.r[3], 0x0u, 0u);
-    c.write8((c.r[4] + c.r[2]), c.r[0]);
+    // [MEMGUARD] guest manggil dg r0=0 -> r4=0, write ke 0x2f9 (luar window).
+    // Abaikan write di luar guest window supaya tidak fault.
+    if (c.in_range((c.r[4] + c.r[2]), 1u)) c.write8((c.r[4] + c.r[2]), c.r[0]);
     if (c.cond(0x1)) { c.next_pc = 0x810a623au; return; }
     c.next_pc = 0x810a6204u; return;""",
     ),
