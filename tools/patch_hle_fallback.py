@@ -212,7 +212,7 @@ uint32_t rc_dbg_missing_pc = 0;       // pc tanpa blok rekompilasi
 uint32_t rc_dbg_missing_from = 0;     // pc pemanggil saat blok tidak ditemukan
 uint32_t rc_dbg_stub_missing = 0;     // 1 = anggap fungsi tanpa blok sebagai stub -1
 uint64_t rc_dbg_stub_returns = 0;     // jumlah stub return (tidak di-reset per chunk)
-uint64_t rc_dbg_null_indirect = 0;    // [NULL_INDIRECT] blx reg dengan target NULL (vtable kosong)
+uint64_t rc_dbg_null_indirect = 0;    // blx reg dengan target NULL (vtable kosong)
 
 // Hook log opsional: diisi android_main.cpp supaya pesan HLE_MISSING /
 // RC_UNIMPL juga masuk ke recomp.log (tab Log), bukan hanya logcat.
@@ -496,14 +496,17 @@ def main(argv: list[str]) -> int:
         text = text.replace(BLOCK_MISS_OLD, BLOCK_MISS_NEW, 1)
         changed.append("block_miss")
 
-    # 8) step_block(): rekam history PC blok (trace sebelum halt/fault).
-    if STEP_HIST_MARK not in text:
+    # 8) step_block(): rekam history PC blok + NULL_INDIRECT stub-return.
+    # Gate pada NULL_INDIRECT_MARK (bukan STEP_HIST): source_code.zip sudah
+    # mengandung STEP_HIST lama, sehingga gate lama melewati patch ini dan
+    # kode NULL_INDIRECT tidak pernah masuk ke biner.
+    if NULL_INDIRECT_MARK not in text:
         sig = re.compile(r"bool\s+Cpu::step_block\s*\(\s*\)\s*\{")
         text, done = replace_span(text, sig, STEP_BLOCK_BODY, "Cpu::step_block()")
         if not done:
             print(f"error: Cpu::step_block() tidak ditemukan di {path}", file=sys.stderr)
             return 1
-        changed.append("step_hist")
+        changed.append("null_indirect_step")
 
     if not changed:
         print(f"OK: {path} sudah dipatch penuh — tidak diubah.")
