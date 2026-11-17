@@ -231,16 +231,17 @@ FIXES = [
             if (rc_dbg_log_hook) rc_dbg_log_hook("LOOP_WAIT", _lw);
         }
 #endif
-        // Paksa keluar secara natural setelah ~100 iterasi (set r5==r6 agar loop selesai)
-        if (rc_loop_8138979e >= 100u) {
+        // [LOOP_GUARD] Jika r6 ternyata bukan count wajar (alamat BSS / >64k),
+        // jangan iterasi jutaan kali: set r6=r5 supaya loop selesai natural.
+        if (c.r[6] > 0x10000u || rc_loop_8138979e >= 100u) {
             rc_loop_8138979e = 0;
-            c.r[5] = c.r[6];
-            RC_SUB_FLAGS(c.r[5], c.r[6], 0u); // blo menjadi false
+            c.r[6] = c.r[5];
+            RC_SUB_FLAGS(c.r[5], c.r[6], 0u);
 #if defined(__ANDROID__)
             {
                 char _lb[200];
                 snprintf(_lb, sizeof(_lb),
-                    "LOOP_WAIT: forced natural exit after 100 iters (addr=0x%08x val=0x%08x) -> r5=r6=0x%08x",
+                    "LOOP_WAIT: guard exit (addr=0x%08x val=0x%08x) r5=r6=0x%08x",
                     _elem_addr, _elem_val, c.r[6]);
                 __android_log_print(ANDROID_LOG_WARN, "LOOP_WAIT", "%s", _lb);
                 if (rc_dbg_log_hook) rc_dbg_log_hook("LOOP_WAIT", _lb);
@@ -587,6 +588,11 @@ _CRT_NEG_STUBS = set()  # 0x81815ca4 kini SCE_OK(0): blok 0x81386d9a sudah direg
 # dan jalankan di std::thread nyata (bukan cuma return 0).
 _CRT_THREAD_CREATE = {0x81815ca4}
 _CRT_THREAD_START  = {0x81815c94}
+# [CRT_ZEROFILL] 0x81815364 dipanggil parser 0x81389498 dengan r0=sp (output
+# struct). Stub no-op membiarkan [sp+0x118] berisi PC -> r6=0x81970ea4 (alamat
+# BSS) -> loop 0x8138979e mengira itu count 2 miliar -> forced exit 100 ->
+# ret_pc=0 halt. Tulis 0 ke [r0+0x118] supaya r6=0 & loop skip natural.
+_CRT_ZEROFILL = {0x81815364}
 _ALL_STUB_ADDRS = sorted(set(ARM_STUB_ADDRS) | set(STUB_NID_MAP.keys()))
 for _a in _ALL_STUB_ADDRS:
     _log = ""
@@ -658,6 +664,24 @@ for _a in _ALL_STUB_ADDRS:
             "        }\n"
             "        c.r[0] = _dst;  // memcpy returns dest\n"
             "    }\n"
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+        )
+    elif _a in _CRT_ZEROFILL:
+        _stub_body = (
+            f"    // [GEN_FIX {_a:08x}] CRT parser helper: zero [r0+0x118] -> r6=0\n"
+            "#if defined(__ANDROID__)\n"
+            "    { static uint32_t _zf_n = 0; ++_zf_n;\n"
+            "      if (_zf_n <= 3u || (_zf_n % 500u) == 0u) {\n"
+            "        char _zf[180]; snprintf(_zf, sizeof(_zf),\n"
+            f"          \"CRT_ZEROFILL: stub=0x{_a:08x} caller=0x%08x sp=0x%08x [#%u]\",\n"
+            "          c.r[14], c.r[0], _zf_n);\n"
+            "        __android_log_print(ANDROID_LOG_WARN, \"CRT_ZEROFILL\", \"%s\", _zf);\n"
+            "        if (rc_dbg_log_hook) rc_dbg_log_hook(\"CRT_ZEROFILL\", _zf);\n"
+            "      }\n"
+            "    }\n"
+            "#endif\n"
+            "    if (c.in_range(c.r[0] + 0x118u, 4u)) c.write32(c.r[0] + 0x118u, 0u);\n"
+            "    c.r[0] = 0u;\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     elif _a in _CRT_NEG_STUBS:
