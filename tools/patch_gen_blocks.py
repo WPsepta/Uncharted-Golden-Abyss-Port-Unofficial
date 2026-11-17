@@ -1272,7 +1272,7 @@ void crt_thread_runner(uint8_t* mem, uint32_t mem_size, uint32_t entry, uint32_t
 }
 }  // namespace
 
-int rc_crt_thread_create(Cpu& cpu, uint32_t name, uint32_t entry, uint32_t stack, uint32_t arg) {
+extern "C" int rc_crt_thread_create(Cpu& cpu, uint32_t name, uint32_t entry, uint32_t stack, uint32_t arg) {
     (void)name; (void)stack;
     std::lock_guard<std::mutex> lk(g_crt_thr_mtx);
     CrtThread* t = new CrtThread();
@@ -1289,7 +1289,7 @@ int rc_crt_thread_create(Cpu& cpu, uint32_t name, uint32_t entry, uint32_t stack
     return static_cast<int>(idx);
 }
 
-int rc_crt_thread_start(Cpu& cpu, uint32_t r0, uint32_t slot, uint32_t r2, uint32_t r3) {
+extern "C" int rc_crt_thread_start(Cpu& cpu, uint32_t r0, uint32_t slot, uint32_t r2, uint32_t r3) {
     (void)r0; (void)r2; (void)r3;
     std::lock_guard<std::mutex> lk(g_crt_thr_mtx);
     if (slot >= g_crt_thrs.size()) return -1;
