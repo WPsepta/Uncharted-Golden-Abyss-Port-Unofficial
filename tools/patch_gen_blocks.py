@@ -858,6 +858,229 @@ def patch_lookup(path: Path) -> bool:
     path.write_text(text, encoding="utf-8", errors="surrogateescape")
     return True
 
+# ---------------------------------------------------------------------------
+# HLE table entries for SceThreadmgr and needed GXM NIDs.
+# ---------------------------------------------------------------------------
+# NID list from reversed ELF import table (SceThreadmgr 15 functions).
+# This is a minimal set for implementing sceKernelCreateThread and
+# sceKernelStartThread with real std::thread runners; other functions are
+# stubbed to SCE_OK so the binary can continue.
+HLE_TABLE_ENTRIES = [
+    (0x03e23af6, "sceKernelCreateThread"),
+    (0x0c8a38e1, "sceKernelStartThread"),
+    (0x15129174, "sceKernelExitThread"),
+    (0x1a372ec8, "sceKernelSleepThread"),
+    (0x1bbde3d9, "sceKernelDelayThread"),
+    (0x1d17decf, "sceKernelSuspendThread"),
+    (0x4b675d05, "sceKernelResumeThread"),
+    (0x6ed2e2dc, "sceKernelRotateThreadReadyQueue"),
+    (0x879e6ebd, "sceKernelChangeThreadPriority"),
+    (0xa2d81f9e, "sceKernelGetThreadId"),
+    (0xbd0139f2, "sceKernelReferThreadStatus"),
+    (0xcbe235c7, "sceKernelWaitThreadEnd"),
+    (0xcc18fbae, "sceKernelGetThreadExitStatus"),
+    (0xdb32948a, "sceKernelCreateCallback"),
+    (0xe6b761d1, "sceKernelNotifyCallback"),
+]
+
+# GXM NIDs needed for real rendering; we stub them as well (SCE_OK).
+# The actual HLE GXM BeginScene/EndScene are already fixed in the code; these
+# are the import stubs that the guest calls. For now we just return 0.
+GXM_NIDS = [
+    (0x008402c6, "sceGxmMapUniformBuffer"),
+    (0x029b4f1c, "sceGxmSetViewport"),
+    (0x0389861d, "sceGxmSetScissor"),
+    (0x05032658, "sceGxmSetDepthTest"),
+    (0x06752183, "sceGxmSetStencilTest"),
+    (0x06ff9151, "sceGxmSetBlendFunc"),
+    (0x0733d8ae, "sceGxmBeginScene"),  # entry point (but HLE fix replaces this address?)
+    (0x099134f5, "sceGxmSetVertexShader"),
+    (0x0b94c50a, "sceGxmSetFragmentShader"),
+    (0x0c44acd7, "sceGxmSetUniformBuffer"),
+    (0x11dc8dc9, "sceGxmSetPixelUnpackState"),
+    (0x12625c34, "sceGxmGetDisplayFrameBuffer"),
+    (0x126a3eb3, "sceGxmGetRenderingStatus"),
+    (0x12aaa7af, "sceGxmSyncObject"),
+    (0x1625d348, "sceGxmCreateVertexBuffer"),
+    (0x17cf46b9, "sceGxmSetVertexBuffer"),
+    (0x1ca9fe0b, "sceGxmDraw"),
+    (0x207af96b, "sceGxmEndScene"),
+]
+
+ALL_HLE_ENTRIES = HLE_TABLE_ENTRIES + GXM_NIDS
+
+
+def patch_hle_table(path: Path) -> bool:
+    """Replace rc_hle_table with entries from ALL_HLE_ENTRIES."""
+    text = path.read_text(encoding="utf-8", errors="surrogateescape")
+    if "// HLE_TABLE_ENTRIES" in text:
+        return False  # already patched
+
+    # Build new table lines.
+    entries = []
+    for nid, name in ALL_HLE_ENTRIES:
+        entries.append(f"    {{0x{nid:08x}u, \"{name}\", rc_hle_dispatcher}}, // generated from HLE_TABLE_ENTRIES")
+    table_body = ",\n".join(entries)
+    new_table_decl = f"extern const HleEntry rc_hle_table[] = {{\n{table_body}\n}};"
+    new_count_decl = f"extern const size_t rc_hle_count = {len(ALL_HLE_ENTRIES)};"
+
+    # Replace the two lines that define the old table.
+    lines = text.splitlines(keepends=True)
+    out = []
+    replaced_table = False
+    replaced_count = False
+    for line in lines:
+        line_stripped = line.strip()
+        if line_stripped.startswith("extern const HleEntry rc_hle_table[]") and not replaced_table:
+            out.append(new_table_decl + "\n")
+            replaced_table = True
+            continue
+        if line_stripped.startswith("extern const size_t rc_hle_count") and not replaced_count:
+            out.append(new_count_decl + "\n")
+            replaced_count = True
+            continue
+        out.append(line)
+    if not replaced_table or not replaced_count:
+        # fallback: simple replace
+        text = text.replace("extern const HleEntry rc_hle_table[] = {{0u, \"unmapped\", nullptr}};", new_table_decl + "\n")
+        text = text.replace("extern const size_t rc_hle_count = 0;", new_count_decl + "\n")
+    path.write_text(text, encoding="utf-8", errors="surrogateescape")
+    return True
+
+
+def patch_recomp_h(path: Path) -> bool:
+    """Add rc_hle_dispatcher prototype to recomp.h if missing."""
+    text = path.read_text(encoding="utf-8", errors="surrogateescape")
+    if "rc_hle_dispatcher" in text:
+        return False
+    anchor = "int rc_hle_dispatch(Cpu& cpu, uint32_t nid);"
+    addition = (
+        "\n// Dispatcher for SceThreadmgr / GXM import stubs.  The matched NID is stored\n"
+        "// in rc_dbg_last_nid before the call, so this function can switch on it.\n"
+        "int rc_hle_dispatcher(Cpu& cpu, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);\n"
+    )
+    if anchor not in text:
+        raise RuntimeError(f"anchor rc_hle_dispatch tidak ditemukan di {path}")
+    text = text.replace(anchor, anchor + "\n" + addition, 1)
+    path.write_text(text, encoding="utf-8", errors="surrogateescape")
+    return True
+
+
+def patch_recomp_cpp(path: Path) -> bool:
+    """Insert HLE thread manager + rc_hle_dispatcher into recomp.cpp."""
+    text = path.read_text(encoding="utf-8", errors="surrogateescape")
+    if "rc_hle_threadmgr_create_thread" in text:
+        return False  # already patched
+
+    # 1) add includes after #include <sys/mman.h>
+    inc_anchor = "#include <sys/mman.h>"
+    inc_add = (
+        "\n#include <thread>\n#include <mutex>\n#include <vector>\n#include <atomic>\n"
+    )
+    if inc_anchor not in text:
+        raise RuntimeError(f"include anchor tidak ditemukan di {path}")
+    text = text.replace(inc_anchor, inc_anchor + inc_add, 1)
+
+    # 2) insert dispatcher + thread manager before "void rc_unimplemented"
+    unimpl_anchor = "void rc_unimplemented(uint32_t pc, const char* what) {"
+    block = r'''// ---------------------------------------------------------------------------
+// HLE thread manager: minimal real guest-thread support.
+// ---------------------------------------------------------------------------
+namespace {
+struct GuestThreadState {
+    uint32_t uid = 0;
+    uint32_t entry = 0;
+    uint32_t arg = 0;
+    std::thread th;
+    std::atomic<bool> started{false};
+    std::atomic<bool> finished{false};
+};
+
+std::mutex g_guest_thread_mutex;
+std::vector<GuestThreadState*> g_guest_threads;
+uint32_t g_guest_thread_next_uid = 0x1000u;
+
+void guest_thread_runner(uint8_t* mem, uint32_t mem_size, uint32_t entry,
+                         uint32_t arg, uint32_t uid) {
+    Cpu c;
+    c.mem = mem;
+    c.mem_size = mem_size;
+    c.reset();
+    c.r[0] = arg;
+    c.r[1] = 0;
+    c.r[13] = kStackTop - ((uid & 0xFFu) + 1u) * 0x10000u;
+    c.r[14] = 0;
+    c.next_pc = entry & ~1u;
+    c.current_pc = entry & ~1u;
+    c.thumb = entry & 1u;
+    c.cpsr = (c.cpsr & ~kFlagT) | (c.thumb ? kFlagT : 0u);
+    c.running = true;
+    c.faulted = false;
+    c.max_blocks = 0;
+    c.run();
+}
+
+}  // namespace
+
+int rc_hle_threadmgr_create_thread(Cpu& cpu, uint32_t name, uint32_t entry,
+                                   uint32_t priority, uint32_t stack_size) {
+    (void)name; (void)priority; (void)stack_size;
+    std::lock_guard<std::mutex> lk(g_guest_thread_mutex);
+    GuestThreadState* t = new GuestThreadState();
+    t->uid = g_guest_thread_next_uid++;
+    t->entry = entry;
+    g_guest_threads.push_back(t);
+    char msg[200];
+    std::snprintf(msg, sizeof(msg),
+        "sceKernelCreateThread: entry=0x%08x priority=%u stack=0x%x -> uid=0x%08x",
+        entry, priority, stack_size, t->uid);
+    if (rc_dbg_log_hook) rc_dbg_log_hook("HLE_THREAD", msg);
+    return static_cast<int>(t->uid);
+}
+
+int rc_hle_threadmgr_start_thread(Cpu& cpu, uint32_t uid, uint32_t arg) {
+    GuestThreadState* t = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_guest_thread_mutex);
+        for (auto* e : g_guest_threads) if (e->uid == uid) { t = e; break; }
+    }
+    if (!t) return -1;
+    t->arg = arg;
+    if (!t->started.exchange(true)) {
+        uint8_t* mem = cpu.mem;
+        const uint32_t mem_size = cpu.mem_size;
+        const uint32_t entry = t->entry;
+        const uint32_t uid_local = t->uid;
+        t->th = std::thread(guest_thread_runner, mem, mem_size, entry,
+                            arg, uid_local);
+        t->th.detach();
+        char msg[200];
+        std::snprintf(msg, sizeof(msg),
+            "sceKernelStartThread: uid=0x%08x entry=0x%08x arg=0x%08x -> std::thread spawned",
+            uid, entry, arg);
+        if (rc_dbg_log_hook) rc_dbg_log_hook("HLE_THREAD", msg);
+    }
+    return 0;
+}
+
+int rc_hle_dispatcher(Cpu& cpu, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) {
+    switch (rc_dbg_last_nid) {
+        case 0x03e23af6u:  // sceKernelCreateThread
+            return rc_hle_threadmgr_create_thread(cpu, r0, r1, r2, r3);
+        case 0x0c8a38e1u:  // sceKernelStartThread
+            return rc_hle_threadmgr_start_thread(cpu, r0, r1);
+        default:
+            return 0;  // other SceThreadmgr/GXM stubs: SCE_OK
+    }
+}
+
+void rc_unimplemented(uint32_t pc, const char* what) {'''
+    if unimpl_anchor not in text:
+        raise RuntimeError(f"rc_unimplemented anchor tidak ditemukan di {path}")
+    text = text.replace(unimpl_anchor, block, 1)
+    path.write_text(text, encoding="utf-8", errors="surrogateescape")
+    return True
+
 
 def main(argv: list[str]) -> int:
     args = [a for a in argv[1:]]
@@ -878,7 +1101,8 @@ def main(argv: list[str]) -> int:
     gen = root / "gen"
     parts = gen / "recompiled_parts.cpp"
     recomp = root / "recomp.cpp"
-    for p in (gen, parts, recomp):
+    recomp_h = root / "recomp.h"
+    for p in (gen, parts, recomp, recomp_h):
         if not p.exists():
             print(f"error: {p} tidak ditemukan", file=sys.stderr)
             return 1
@@ -898,6 +1122,12 @@ def main(argv: list[str]) -> int:
         changed.append("registry")
     if patch_lookup(recomp):
         changed.append("lookup")
+    if patch_hle_table(recomp):
+        changed.append("hle_table")
+    if patch_recomp_h(recomp_h):
+        changed.append("recomp_h")
+    if patch_recomp_cpp(recomp):
+        changed.append("recomp_cpp")
     print(f"OK: blok perbaikan ditulis ({', '.join(changed)}), total {len(FIXES)} blok.")
     return 0
 
