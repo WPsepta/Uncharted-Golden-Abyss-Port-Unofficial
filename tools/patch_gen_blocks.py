@@ -676,10 +676,27 @@ for _a in _ALL_STUB_ADDRS:
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     else:
+        # [CRT_SCE_OK] Stub hollow non-import (CRT/internal). Sebelumnya return
+        # -1 (0xFFFFFFFF) yang membuat parser guest (mis. 0x81389498 yang
+        # memanggil 0x81815364) menghasilkan r6=0x81970ea4 garbage -> loop
+        # 0x8138979e 2 miliar iterasi -> halt. Kembalikan SCE_OK(0) + log.
+        _log = (
+            "#if defined(__ANDROID__)\n"
+            "    { static uint32_t _cs_n = 0; ++_cs_n;\n"
+            "      if (_cs_n <= 3u || (_cs_n % 500u) == 0u) {\n"
+            f"        char _cs[220]; snprintf(_cs, sizeof(_cs),\n"
+            f"          \"CRT_STUB: stub=0x{_a:08x} caller=0x%08x r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x [#%u]\",\n"
+            "          c.r[14], c.r[0], c.r[1], c.r[2], c.r[3], _cs_n);\n"
+            "        __android_log_print(ANDROID_LOG_WARN, \"CRT_STUB\", \"%s\", _cs);\n"
+            "        if (rc_dbg_log_hook) rc_dbg_log_hook(\"CRT_STUB\", _cs);\n"
+            "      }\n"
+            "    }\n"
+            "#endif\n"
+        )
         _stub_body = (
-            "    // [GEN_FIX %08x] ARM stub: mvn r0,#0 ; bx lr  -> return -1\n" % _a +
+            f"    // [GEN_FIX {_a:08x}] ARM stub hollow -> SCE_OK(0)\n" +
             _log +
-            "    c.r[0] = " + _ret + ";\n"
+            "    c.r[0] = 0u;\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     FIXES.append((
