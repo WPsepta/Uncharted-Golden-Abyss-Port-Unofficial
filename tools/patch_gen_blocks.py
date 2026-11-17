@@ -582,6 +582,11 @@ _CRT_MEMCPY_STUBS = {0x81815464, 0x81815494, 0x818156d4}
 # membuat guest ambil jalur 0x81386d60 yang valid & sudah diperbaiki
 # (parser 0x81389498 kini dapat SCE_OK dari 0x81815364 -> r6 tidak garbage).
 _CRT_NEG_STUBS = set()  # 0x81815ca4 kini SCE_OK(0): blok 0x81386d9a sudah diregenerate
+# [THREAD_HLE] Stub CRT internal thread: 0x81815ca4 = create-thread(name r0, entry r1,
+# stack r2, arg r3), 0x81815c94 = start-thread(r1=thread slot). Kita simpan entry
+# dan jalankan di std::thread nyata (bukan cuma return 0).
+_CRT_THREAD_CREATE = {0x81815ca4}
+_CRT_THREAD_START  = {0x81815c94}
 _ALL_STUB_ADDRS = sorted(set(ARM_STUB_ADDRS) | set(STUB_NID_MAP.keys()))
 for _a in _ALL_STUB_ADDRS:
     _log = ""
@@ -670,6 +675,18 @@ for _a in _ALL_STUB_ADDRS:
             "    }\n"
             "#endif\n"
             "    c.r[0] = 0xFFFFFFFFu;\n"
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+        )
+    elif _a in _CRT_THREAD_CREATE:
+        _stub_body = (
+            f"    // [GEN_FIX {_a:08x}] CRT create-thread: simpan entry r1, arg r3\n"
+            f"    rc_crt_thread_create(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+        )
+    elif _a in _CRT_THREAD_START:
+        _stub_body = (
+            f"    // [GEN_FIX {_a:08x}] CRT start-thread: jalankan entry di std::thread\n"
+            f"    rc_crt_thread_start(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     elif _a in STUB_NID_MAP:
@@ -941,6 +958,8 @@ def emit_fix_file(fixes) -> str:
         "    extern uint32_t rc_dbg_hle_hist_i;",
         "    extern uint32_t rc_dbg_last_nid;",
         "    extern uint64_t rc_dbg_stub_returns;",
+        "    extern int rc_crt_thread_create(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
+        "    extern int rc_crt_thread_start(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
         "    extern uint32_t rc_dbg_stub_caller_81815464;",
         "    extern uint32_t rc_dbg_stub_caller_81815494;",
         "}",
@@ -1123,7 +1142,7 @@ def patch_recomp_cpp(path: Path) -> bool:
     # 1) add includes after #include <sys/mman.h>
     inc_anchor = "#include <sys/mman.h>"
     inc_add = (
-        "\n#include <thread>\n#include <mutex>\n#include <vector>\n#include <atomic>\n"
+        "\n#include <thread>\n#include <mutex>\n#include <vector>\n#include <atomic>\n#include <chrono>\n"
     )
     if inc_anchor not in text:
         raise RuntimeError(f"include anchor tidak ditemukan di {path}")
@@ -1143,6 +1162,10 @@ struct GuestThreadState {
     std::atomic<bool> started{false};
     std::atomic<bool> finished{false};
 };
+
+// [GUEST_MEM_ALIVE] Set false oleh rc_shutdown; thread guest cek ini sebelum
+// akses mem supaya tidak use-after-free saat activity ditutup.
+std::atomic<bool> g_guest_mem_alive{true};
 
 std::mutex g_guest_thread_mutex;
 std::vector<GuestThreadState*> g_guest_threads;
@@ -1211,6 +1234,93 @@ int rc_hle_threadmgr_start_thread(Cpu& cpu, uint32_t uid, uint32_t arg) {
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// rc_crt_thread_* : CRT-internal thread stubs dipanggil guest saat init.
+// create(r0=name, r1=entry, r2=stack, r3=arg) -> simpan entry per slot.
+// start (r1=slot ptr) -> jalankan entry di std::thread nyata. Jika entry di luar
+// guest window (pointer ke struktur heap yang belum ada), pakai game-loop
+// 0x813833cc sebagai fallback supaya thread tetap hidup & GXM bisa dipanggil.
+// ---------------------------------------------------------------------------
+namespace {
+struct CrtThread { uint32_t entry, arg; std::thread th; std::atomic<bool> started{false}; };
+std::mutex g_crt_thr_mtx;
+std::vector<CrtThread*> g_crt_thrs;
+uint32_t g_crt_thr_seq = 0;
+
+void crt_thread_runner(uint8_t* mem, uint32_t mem_size, uint32_t entry, uint32_t arg, uint32_t idx) {
+    Cpu c;
+    c.mem = mem; c.mem_size = mem_size; c.reset();
+    c.r[0] = arg; c.r[1] = idx;
+    c.r[13] = kStackTop - (idx + 2u) * 0x20000u;
+    c.r[14] = 0x81F00000u;  // trampoline: halt bersih
+    c.next_pc = entry & ~1u; c.current_pc = entry & ~1u;
+    c.thumb = entry & 1u;
+    c.cpsr = (c.cpsr & ~kFlagT) | (c.thumb ? kFlagT : 0u);
+    c.running = true; c.faulted = false; c.max_blocks = 0;
+    // jalan dalam chunk kecil sambil s->running dicek lewat flag global.
+    for (int chunk = 0; chunk < 100000 && c.running && !c.faulted && g_guest_mem_alive.load(); ++chunk) {
+        c.max_blocks = c.blocks_run + 20000u;
+        c.run();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (rc_dbg_log_hook) {
+        char m[200];
+        std::snprintf(m, sizeof(m), "CRT thread #%u selesai: entry=0x%08x blocks=%llu faulted=%d",
+                      idx, entry, (unsigned long long)c.blocks_run, (int)c.faulted);
+        rc_dbg_log_hook("HLE_THREAD", m);
+    }
+}
+}  // namespace
+
+int rc_crt_thread_create(Cpu& cpu, uint32_t name, uint32_t entry, uint32_t stack, uint32_t arg) {
+    (void)name; (void)stack;
+    std::lock_guard<std::mutex> lk(g_crt_thr_mtx);
+    CrtThread* t = new CrtThread();
+    t->entry = entry; t->arg = arg;
+    g_crt_thrs.push_back(t);
+    uint32_t idx = g_crt_thr_seq++;
+    if (rc_dbg_log_hook) {
+        char m[220];
+        std::snprintf(m, sizeof(m),
+            "CRT create-thread #%u: entry=0x%08x arg=0x%08x stack=0x%x -> slot=%u",
+            idx, entry, arg, stack, idx);
+        rc_dbg_log_hook("HLE_THREAD", m);
+    }
+    return static_cast<int>(idx);
+}
+
+int rc_crt_thread_start(Cpu& cpu, uint32_t r0, uint32_t slot, uint32_t r2, uint32_t r3) {
+    (void)r0; (void)r2; (void)r3;
+    std::lock_guard<std::mutex> lk(g_crt_thr_mtx);
+    if (slot >= g_crt_thrs.size()) return -1;
+    CrtThread* t = g_crt_thrs[slot];
+    if (t->started.exchange(true)) return 0;
+    uint32_t entry = t->entry;
+    // Validasi entry: harus di guest window & punya blok rekompilasi.
+    if (entry < kMemBase || entry >= kMemBase + kMemSize || !find_block(entry & ~1u)) {
+        if (rc_dbg_log_hook) {
+            char m[240];
+            std::snprintf(m, sizeof(m),
+                "CRT start-thread #%u: entry 0x%08x TIDAK valid -> fallback game-loop 0x813833cc",
+                slot, entry);
+            rc_dbg_log_hook("HLE_THREAD", m);
+        }
+        entry = 0x813833ccu;
+    }
+    uint8_t* mem = cpu.mem; uint32_t mem_size = cpu.mem_size;
+    uint32_t arg = t->arg;
+    t->th = std::thread(crt_thread_runner, mem, mem_size, entry, arg, slot);
+    t->th.detach();
+    if (rc_dbg_log_hook) {
+        char m[240];
+        std::snprintf(m, sizeof(m),
+            "CRT start-thread #%u: std::thread spawned entry=0x%08x arg=0x%08x",
+            slot, entry, arg);
+        rc_dbg_log_hook("HLE_THREAD", m);
+    }
+    return 0;
+}
+
 int rc_hle_dispatcher(Cpu& cpu, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) {
     switch (rc_dbg_last_nid) {
         case 0xC5C11EE7u:  // sceKernelCreateThread (NID RESMI)
@@ -1226,6 +1336,28 @@ void rc_unimplemented(uint32_t pc, const char* what) {'''
     if unimpl_anchor not in text:
         raise RuntimeError(f"rc_unimplemented anchor tidak ditemukan di {path}")
     text = text.replace(unimpl_anchor, block, 1)
+
+    # 3) rc_shutdown(): tandai guest memory tidak alive supaya thread guest
+    #    berhenti sebelum munmap (cegah use-after-free saat activity ditutup).
+    shutdown_old = """void rc_shutdown(Cpu& cpu) {
+    if (cpu.mem) {
+        munmap(cpu.mem, cpu.mem_size);
+        cpu.mem = nullptr;
+    }
+}"""
+    shutdown_new = """void rc_shutdown(Cpu& cpu) {
+    g_guest_mem_alive.store(false);  // [GUEST_MEM_ALIVE] stop guest threads
+    for (int _w = 0; _w < 200 && g_crt_thrs.size(); ++_w) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (cpu.mem) {
+        munmap(cpu.mem, cpu.mem_size);
+        cpu.mem = nullptr;
+    }
+}"""
+    if shutdown_old in text:
+        text = text.replace(shutdown_old, shutdown_new, 1)
+
     path.write_text(text, encoding="utf-8", errors="surrogateescape")
     return True
 
