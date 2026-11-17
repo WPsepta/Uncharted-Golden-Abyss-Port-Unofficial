@@ -29,8 +29,12 @@ import sys
 from pathlib import Path
 
 # Rentang yang mau dibangkitkan ulang (blok invalid berturut setelah create-thread).
-REGION_START = 0x81386D9A
-REGION_END = 0x81387592          # blok valid pertama setelah region
+# Daftar region blok invalid yang dibangkitkan ulang (start, end).
+REGIONS = [
+    (0x81386D9A, 0x81387592),    # 16 blok invalid setelah create-thread
+    (0x8138974E, 0x81389768),    # jalur early-exit parser (r6=0)
+]
+REGION_START, REGION_END = REGIONS[0]
 PART_FILE = "recompiled_part998.cpp"
 PART_SYM = "rc_blocks_part998"
 MARK = "[REGEN_INVALID]"
@@ -74,33 +78,34 @@ def decode_region(elf: Path) -> list[tuple[int, int, str, int | None]]:
     """
     out: list[tuple[int, int, str, int | None]] = []
     seen: set[int] = set()
-    cur = REGION_START
     CHUNK = 12
-    guard = 0
-    while cur < REGION_END and guard < 400:
-        guard += 1
-        raw = rizin_pd_thumb(elf, cur, CHUNK)
-        if not raw:
-            break
-        next_cur = None
-        for o in raw:
-            try:
-                addr = int(o.get("offset", 0))
-                size = int(o.get("size", 2) or 2)
-                text = (o.get("opcode") or o.get("disasm") or "").strip()
-                jump = o.get("jump")
-                jump = int(jump) if jump is not None else None
-            except (ValueError, TypeError):
-                continue
-            if addr in seen or addr < REGION_START or addr >= REGION_END:
-                continue
-            seen.add(addr)
-            out.append((addr, size, text, jump))
-            if next_cur is None or addr >= next_cur:
-                next_cur = addr + size
-        if next_cur is None or next_cur <= cur:
-            break
-        cur = next_cur
+    for rstart, rend in REGIONS:
+        cur = rstart
+        guard = 0
+        while cur < rend and guard < 400:
+            guard += 1
+            raw = rizin_pd_thumb(elf, cur, CHUNK)
+            if not raw:
+                break
+            next_cur = None
+            for o in raw:
+                try:
+                    addr = int(o.get("offset", 0))
+                    size = int(o.get("size", 2) or 2)
+                    text = (o.get("opcode") or o.get("disasm") or "").strip()
+                    jump = o.get("jump")
+                    jump = int(jump) if jump is not None else None
+                except (ValueError, TypeError):
+                    continue
+                if addr in seen or addr < rstart or addr >= rend:
+                    continue
+                seen.add(addr)
+                out.append((addr, size, text, jump))
+                if next_cur is None or addr >= next_cur:
+                    next_cur = addr + size
+            if next_cur is None or next_cur <= cur:
+                break
+            cur = next_cur
     out.sort(key=lambda x: x[0])
     return out
 
@@ -132,13 +137,15 @@ def build_blocks(ops: list[tuple[int, int, str, int | None]]):
     targets = set()
     for addr, size, text, jump in ops:
         t = jump if jump is not None else branch_target(text, addr, size)
-        if t is not None and REGION_START <= t < REGION_END:
+        if t is not None and any(rs <= t < re for rs, re in REGIONS):
             targets.add(t)
     blocks = []
     cur = []
+    # setiap alamat awal region adalah batas blok (region tidak boleh digabung)
+    region_starts = {rs for rs, _ in REGIONS}
     for op in ops:
         addr, size, text, jump = op
-        if cur and addr in targets:
+        if cur and (addr in targets or addr in region_starts):
             blocks.append(cur)
             cur = []
         cur.append(op)
@@ -312,7 +319,7 @@ def main(argv: list[str]) -> int:
         n_blk = outf.read_text(errors="surrogateescape").count("static void blk_")
         assert n_blk > 0, "part998 tidak punya blok"
     print(f"OK: {n_blk} blok Thumb-2 part998 ({', '.join(changed) or 'sudah ada'}), "
-          f"region 0x{REGION_START:x}..0x{REGION_END:x}.")
+          f"regions: {', '.join('0x%x..0x%x' % r for r in REGIONS)}.")
     return 0
 
 

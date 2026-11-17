@@ -1867,6 +1867,50 @@ static void blk_81387568(Cpu& c) {
     // bkpt/system @0x81387590 -> no-op, lanjut ke 0x81387592
     c.next_pc = 0x81387592u; return;
 }
+// 0x8138974e  thumb  (4 insn)
+static void blk_8138974e(Cpu& c) {
+    (void)c;
+    // 0x8138974e  ldr r1, [sp, 0x108]
+    c.r[1] = c.read32((c.r[13] + 0x108u));
+    // 0x81389750  ldr r0, [sp, 0x120]
+    c.r[0] = c.read32((c.r[13] + 0x120u));
+    // 0x81389752  cmp r0, r1
+    RC_SUB_FLAGS(c.r[0], c.r[1], 0u);
+    // 0x81389754  blo 0x81389758
+    if (c.cond(0x3)) { c.next_pc = 0x81389758u; return; }
+    c.next_pc = 0x81389756u; return;
+}
+// 0x81389756  thumb  (1 insn)
+static void blk_81389756(Cpu& c) {
+    (void)c;
+    // 0x81389756  b 0x81389762
+    c.next_pc = 0x81389762u; return;
+}
+// 0x81389758  thumb  (4 insn)
+static void blk_81389758(Cpu& c) {
+    (void)c;
+    // 0x81389758  ldr r1, [sp, 0x11c]
+    c.r[1] = c.read32((c.r[13] + 0x11cu));
+    // 0x8138975a  ldr r2, [sp, 0x10c]
+    c.r[2] = c.read32((c.r[13] + 0x10cu));
+    // 0x8138975c  str.w r1, [r2, r0, lsl 2]
+    c.write32((c.r[2] + (c.r[0] << (0x2u & 31u))), c.r[1]);
+    // 0x81389760  b 0x81389756
+    c.next_pc = 0x81389756u; return;
+}
+// 0x81389762  thumb  (2 insn)
+static void blk_81389762(Cpu& c) {
+    (void)c;
+    // 0x81389762  add sp, 0x12c
+    c.r[13] = ((c.r[13]) + (0x12cu));
+    // 0x81389764  pop.w {r5, r6, sb, sl, pc}
+    c.r[5] = c.read32(c.r[13] + 0x0u);
+    c.r[6] = c.read32(c.r[13] + 0x4u);
+    c.r[9] = c.read32(c.r[13] + 0x8u);
+    c.r[10] = c.read32(c.r[13] + 0xcu);
+    { uint32_t t = c.read32(c.r[13] + 0x10u); c.r[13] += 0x14u; c.next_pc = t & ~1u; return; }
+    RC_FALL(0x81389768u);
+}
 } // namespace
 
 namespace rc {
@@ -1952,6 +1996,10 @@ extern const BlockDesc rc_blocks_part998[] = {
     {0x81387540u, 1u, &blk_81387540},
     {0x81387544u, 1u, &blk_81387544},
     {0x81387568u, 1u, &blk_81387568},
+    {0x8138974eu, 1u, &blk_8138974e},
+    {0x81389756u, 1u, &blk_81389756},
+    {0x81389758u, 1u, &blk_81389758},
+    {0x81389762u, 1u, &blk_81389762},
 };
 extern const size_t rc_blocks_part998_count = sizeof(rc_blocks_part998) / sizeof(rc_blocks_part998[0]);
 } // namespace rc
