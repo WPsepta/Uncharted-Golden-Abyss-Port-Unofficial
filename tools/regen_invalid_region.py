@@ -227,9 +227,9 @@ def emit(elf: Path, gen: Path) -> bool:
     txt = buf.getvalue()
     def _noop_unimpl(m):
         addr = int(m.group(1), 16)
-        nxt = addr + 2
-        return (f"    // bkpt/system @0x{addr:08x} -> no-op, lanjut ke 0x{nxt:x}\n"
-                f"    c.next_pc = 0x{nxt:x}u; return;")
+        # Jangan sisipkan return: instruksi berikutnya dalam blok yang sama
+        # (mis. `bl` di addr+2) harus tetap dieksekusi. RC_UNIMPL cuma dihapus.
+        return f"    // bkpt/system @0x{addr:08x} -> no-op (instruksi berikut jalan)\n"
     txt = re.sub(
         r'    RC_UNIMPL\(0x([0-9a-f]+)u, "(?:bkpt 0|mrc [^"]*)"\);  // [^\n]*',
         _noop_unimpl, txt,

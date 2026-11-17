@@ -128,8 +128,8 @@ static void blk_81386e12(Cpu& c) {
 static void blk_81386e16(Cpu& c) {
     (void)c;
     // 0x81386e16  bkpt 0
-    // bkpt/system @0x81386e16 -> no-op, lanjut ke 0x81386e18
-    c.next_pc = 0x81386e18u; return;
+    // bkpt/system @0x81386e16 -> no-op (instruksi berikut jalan)
+
     // 0x81386e18  bl 0x81025a0a
     c.r[14] = 0x81386e1du;
     c.next_pc = 0x81025a0au; return;
@@ -259,8 +259,8 @@ static void blk_81386e94(Cpu& c) {
 static void blk_81386e98(Cpu& c) {
     (void)c;
     // 0x81386e98  bkpt 0
-    // bkpt/system @0x81386e98 -> no-op, lanjut ke 0x81386e9a
-    c.next_pc = 0x81386e9au; return;
+    // bkpt/system @0x81386e98 -> no-op (instruksi berikut jalan)
+
     // 0x81386e9a  bl 0x81025a0a
     c.r[14] = 0x81386e9fu;
     c.next_pc = 0x81025a0au; return;
@@ -390,8 +390,8 @@ static void blk_81386f16(Cpu& c) {
 static void blk_81386f1a(Cpu& c) {
     (void)c;
     // 0x81386f1a  bkpt 0
-    // bkpt/system @0x81386f1a -> no-op, lanjut ke 0x81386f1c
-    c.next_pc = 0x81386f1cu; return;
+    // bkpt/system @0x81386f1a -> no-op (instruksi berikut jalan)
+
     // 0x81386f1c  bl 0x81025a0a
     c.r[14] = 0x81386f21u;
     c.next_pc = 0x81025a0au; return;
@@ -521,8 +521,8 @@ static void blk_81386f9a(Cpu& c) {
 static void blk_81386f9e(Cpu& c) {
     (void)c;
     // 0x81386f9e  bkpt 0
-    // bkpt/system @0x81386f9e -> no-op, lanjut ke 0x81386fa0
-    c.next_pc = 0x81386fa0u; return;
+    // bkpt/system @0x81386f9e -> no-op (instruksi berikut jalan)
+
     // 0x81386fa0  bl 0x81025a0a
     c.r[14] = 0x81386fa5u;
     c.next_pc = 0x81025a0au; return;
@@ -663,8 +663,8 @@ static void blk_81387024(Cpu& c) {
 static void blk_81387028(Cpu& c) {
     (void)c;
     // 0x81387028  bkpt 0
-    // bkpt/system @0x81387028 -> no-op, lanjut ke 0x8138702a
-    c.next_pc = 0x8138702au; return;
+    // bkpt/system @0x81387028 -> no-op (instruksi berikut jalan)
+
     // 0x8138702a  bl 0x81025a0a
     c.r[14] = 0x8138702fu;
     c.next_pc = 0x81025a0au; return;
@@ -2043,8 +2043,8 @@ static void blk_81387544(Cpu& c) {
     // 0x81387548  sub sp, 0x4c
     c.r[13] = ((c.r[13]) - (0x4cu));
     // 0x8138754a  mrc p15, 0, r4, c13, c0, 3
-    // bkpt/system @0x8138754a -> no-op, lanjut ke 0x8138754c
-    c.next_pc = 0x8138754cu; return;
+    // bkpt/system @0x8138754a -> no-op (instruksi berikut jalan)
+
     // 0x8138754e  str r0, [sp, 0x38]
     c.write32((c.r[13] + 0x38u), c.r[0]);
     // 0x81387550  movw lr, 0x70
@@ -2109,8 +2109,8 @@ static void blk_8138758c(Cpu& c) {
 static void blk_81387590(Cpu& c) {
     (void)c;
     // 0x81387590  bkpt 0
-    // bkpt/system @0x81387590 -> no-op, lanjut ke 0x81387592
-    c.next_pc = 0x81387592u; return;
+    // bkpt/system @0x81387590 -> no-op (instruksi berikut jalan)
+
 }
 // 0x8138974e  thumb  (4 insn)
 static void blk_8138974e(Cpu& c) {
