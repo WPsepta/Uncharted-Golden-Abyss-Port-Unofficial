@@ -81,7 +81,7 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
     if ((rc_dbg_step_total % 1000u) == 0u) {
         char _st[160];
         std::snprintf(_st, sizeof(_st), "[STEP_HIST] step pc=0x%08x next=0x%08x steps=%llu",
-                      next_pc, next_pc, (unsigned long long)rc_dbg_step_total);
+                      next_pc, next_pc, (unsigned long long)blocks_run);
         RC_LOGE("%s", _st);
         if (rc_dbg_log_hook) rc_dbg_log_hook("STEP_HIST", _st);
     }

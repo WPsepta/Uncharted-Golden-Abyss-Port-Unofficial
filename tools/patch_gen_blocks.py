@@ -279,7 +279,7 @@ FIXES = [
             const uint32_t n = rc_dbg_hist_n > 32u ? 32u : rc_dbg_hist_n;
             char tbuf[1024]; size_t tp = 0;
             tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp,
-                "TRACE blok terakhir (%u, steps=%llu):", n, (unsigned long long)rc_dbg_step_total);
+                "TRACE blok terakhir (%u, steps=%llu):", n, (unsigned long long)c.blocks_run);
             for (uint32_t k = 0; k < n && tp + 12 < sizeof(tbuf); ++k) {
                 const uint32_t idx = (rc_dbg_hist_i + 32u - n + k) & 31u;
                 tp += (size_t)snprintf(tbuf + tp, sizeof(tbuf) - tp, " 0x%08x", rc_dbg_hist_pc[idx]);
@@ -569,7 +569,13 @@ ARM_STUB_ADDRS = [
 # Dua stub special 0x81815464/0x81815494 dipertahankan (fake context) karena
 # tick thread memanggilnya langsung di loop.
 # ---------------------------------------------------------------------------
-_LOG_STUBS = {0x81815464, 0x81815494}
+_LOG_STUBS = set()  # 0x81815464/0x81815494 handled by _CRT_MEMCPY_STUBS below
+# [CRT_MEMCPY] Tiga stub hollow ini adalah memcpy CRT yang dipanggil guest dengan
+# r0=dest, r1=size, r2=src, r3=end (lihat 0x813833f6/0x813833fc/0x81383402).
+# Stub lama cuma no-op + MENIMPA r2 dengan fake context 0x81010000 -> buffer
+# stack tidak terisi -> count garbage 0x81970ea4 -> loop 0x8138979e forced exit
+# -> ret_pc=0 -> halt. Implementasikan memcpy NYATA di guest memory.
+_CRT_MEMCPY_STUBS = {0x81815464, 0x81815494, 0x818156d4}
 _ALL_STUB_ADDRS = sorted(set(ARM_STUB_ADDRS) | set(STUB_NID_MAP.keys()))
 for _a in _ALL_STUB_ADDRS:
     _log = ""
@@ -613,6 +619,35 @@ for _a in _ALL_STUB_ADDRS:
             "    c.r[0] = 0u;  // SCE_OK\n"
             "    c.r[0] = " + _ret + ";\n",
             1,
+        )
+    elif _a in _CRT_MEMCPY_STUBS:
+        _stub_body = (
+            f"    // [GEN_FIX {_a:08x}] CRT memcpy: r0=dest r1=size r2=src r3=end\n"
+            "#if defined(__ANDROID__)\n"
+            "    { static uint32_t _mc_n = 0; ++_mc_n;\n"
+            "      if (_mc_n <= 3u || (_mc_n % 500u) == 0u) {\n"
+            f"        char _mc[260]; snprintf(_mc, sizeof(_mc),\n"
+            f"          \"CRT_MEMCPY: stub=0x{_a:08x} dest=0x%08x src=0x%08x n=0x%08x \"\n"
+            "          \"byte_dest=%02x %02x %02x %02x [#%u]\",\n"
+            "          c.r[0], c.r[2], c.r[1],\n"
+            "          c.in_range(c.r[0],4u) ? c.read8(c.r[0]) : 0u,\n"
+            "          c.in_range(c.r[0]+1u,1u) ? c.read8(c.r[0]+1u) : 0u,\n"
+            "          c.in_range(c.r[0]+2u,1u) ? c.read8(c.r[0]+2u) : 0u,\n"
+            "          c.in_range(c.r[0]+3u,1u) ? c.read8(c.r[0]+3u) : 0u, _mc_n);\n"
+            "        __android_log_print(ANDROID_LOG_WARN, \"CRT_MEMCPY\", \"%s\", _mc);\n"
+            "        if (rc_dbg_log_hook) rc_dbg_log_hook(\"CRT_MEMCPY\", _mc);\n"
+            "      }\n"
+            "    }\n"
+            "#endif\n"
+            "    {\n"
+            "        uint32_t _dst = c.r[0], _src = c.r[2], _n = c.r[1];\n"
+            "        if (_n > 0x100000u) _n = 0x100000u;  // safety cap 1 MiB\n"
+            "        if (_n && c.in_range(_dst, _n) && c.in_range(_src, _n) && _dst != _src) {\n"
+            "            std::memcpy(c.mem + (_dst - kMemBase), c.mem + (_src - kMemBase), _n);\n"
+            "        }\n"
+            "        c.r[0] = _dst;  // memcpy returns dest\n"
+            "    }\n"
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     elif _a in STUB_NID_MAP:
         _nid, _lbl = STUB_NID_MAP[_a]
@@ -847,6 +882,7 @@ def emit_fix_file(fixes) -> str:
         "// Blok pengganti untuk lubang translator; dicek sebelum tabel part normal.",
         '#include "recomp.h"',
         "#include <cstdio>",
+        "#include <cstring>",
         "#if defined(__ANDROID__)",
         "#include <android/log.h>",
         "#endif",
