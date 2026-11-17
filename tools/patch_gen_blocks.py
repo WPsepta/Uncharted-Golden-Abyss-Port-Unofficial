@@ -196,8 +196,9 @@ FIXES = [
         0x81386D94,
         1,
         "00 be",
-        """    // [GEN_FIX 0x81386d94] bkpt 0 -> no-op, continue (debug halt in original)
-    c.next_pc = 0x81386d96u; return;""",
+        """    // [GEN_FIX 0x81386d94] bkpt 0 -> lompat ke 0x81386d9a (blok Thumb-2
+    // hasil regenerate di part998). 0x81386d96/98 tidak punya blok valid.
+    c.next_pc = 0x81386d9au; return;""",
     ),
     (
         0x8138979E,
