@@ -581,7 +581,7 @@ _CRT_MEMCPY_STUBS = {0x81815464, 0x81815494, 0x818156d4}
 # yang TIDAK bisa diterjemahkan translator (RC_UNIMPL) -> fault. Return -1
 # membuat guest ambil jalur 0x81386d60 yang valid & sudah diperbaiki
 # (parser 0x81389498 kini dapat SCE_OK dari 0x81815364 -> r6 tidak garbage).
-_CRT_NEG_STUBS = {0x81815ca4}
+_CRT_NEG_STUBS = set()  # 0x81815ca4 kini SCE_OK(0): blok 0x81386d9a sudah diregenerate
 _ALL_STUB_ADDRS = sorted(set(ARM_STUB_ADDRS) | set(STUB_NID_MAP.keys()))
 for _a in _ALL_STUB_ADDRS:
     _log = ""
@@ -967,7 +967,14 @@ def emit_fix_file(fixes) -> str:
         "extern const size_t rc_blocks_part999_count =",
         "    sizeof(rc_blocks_part999) / sizeof(rc_blocks_part999[0]);",
         "",
+        "// [REGEN_INVALID] part998: blok Thumb-2 hasil regenerate. Harus dicek",
+        "// lebih dulu karena alamatnya bertabrakan dengan part042 (binary search).",
+        "extern const BlockDesc rc_blocks_part998[];",
+        "extern const size_t rc_blocks_part998_count;",
         "const BlockDesc* rc_fix_find_block(uint32_t pc) {",
+        "    for (size_t i = 0; i < rc_blocks_part998_count; ++i) {",
+        "        if (rc_blocks_part998[i].addr == pc) return &rc_blocks_part998[i];",
+        "    }",
         "    for (size_t i = 0; i < rc_blocks_part999_count; ++i) {",
         "        if (rc_blocks_part999[i].addr == pc) return &rc_blocks_part999[i];",
         "    }",
