@@ -330,16 +330,22 @@ FIXES = [
         0x810A61EC,
         1,
         "70 b5 04 1c",
-        """    // [GEN_FIX 0x810a61ec] CRT TLS getter: mrc p15 c13 (RC_UNIMPL) -> r1 = TLS ptr
+        """    // [GEN_FIX 0x810a61ec] CRT TLS getter: tiru seluruh blok 9 insn,
+    // mrc p15 c13 (RC_UNIMPL) diganti r1 = TLS ptr.
     c.r[13] -= 0x10u;
     c.write32(c.r[13] + 0x0u, c.r[4]);
     c.write32(c.r[13] + 0x4u, c.r[5]);
     c.write32(c.r[13] + 0x8u, c.r[6]);
     c.write32(c.r[13] + 0xcu, c.r[14]);
-    c.r[4] = c.r[0];
-    // mrc p15,0,r1,c13,c0,3 -> TLS pointer di guest memory
-    c.r[1] = 0x81970000u;
-    c.next_pc = 0x810a61f4u; return;""",
+    { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[4] = v; RC_ADD_FLAGS(a, b, 0u); }
+    c.r[1] = 0x81970000u;  // TLS ptr (ganti mrc p15,c13)
+    c.r[2] = 0x2f9u;
+    { uint32_t v = 0x1u; c.r[0] = v; RC_SET_NZ(v); }
+    c.r[3] = c.read8((c.r[4] + 0x2f8u));
+    RC_SUB_FLAGS(c.r[3], 0x0u, 0u);
+    c.write8((c.r[4] + c.r[2]), c.r[0]);
+    if (c.cond(0x1)) { c.next_pc = 0x810a623au; return; }
+    c.next_pc = 0x810a6204u; return;""",
     ),
 ]
 
