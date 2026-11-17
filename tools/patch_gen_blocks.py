@@ -1028,6 +1028,7 @@ def emit_fix_file(fixes) -> str:
         "    extern uint32_t rc_dbg_hle_hist_i;",
         "    extern uint32_t rc_dbg_last_nid;",
         "    extern uint64_t rc_dbg_stub_returns;",
+        "    extern uint32_t rc_nearest_block(uint32_t);",
         "    extern int rc_crt_thread_create(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
         "    extern int rc_crt_thread_start(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
         "    extern uint32_t rc_dbg_stub_caller_81815464;",
@@ -1342,6 +1343,27 @@ void crt_thread_runner(uint8_t* mem, uint32_t mem_size, uint32_t entry, uint32_t
 }
 }  // namespace
 
+// [TBH_NEAREST] Cari awal blok rekompilasi terdekat <= pc (untuk tbh/tbb).
+// Iterasi linear semua part (jarang dipanggil, hanya saat jump-table).
+extern "C" uint32_t rc_nearest_block(uint32_t pc) {
+    uint32_t best = 0u;
+    // binary search part terakhir yang alamat pertamanya <= pc
+    size_t lo = 0u, hi = rc_block_parts_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2u;
+        if (rc_block_parts[mid].data->addr <= pc) lo = mid + 1u; else hi = mid;
+    }
+    if (lo > 0u) {
+        const BlockPart& bp = rc_block_parts[lo - 1u];
+        for (size_t i = 0; i < bp.count; ++i) {
+            uint32_t a = bp.data[i].addr;
+            if (a <= pc && a > best) best = a;
+        }
+    }
+    if (const BlockDesc* f = rc_fix_find_block(pc)) best = f->addr;
+    return best;
+}
+
 extern "C" int rc_crt_thread_create(Cpu& cpu, uint32_t name, uint32_t entry, uint32_t stack, uint32_t arg) {
     (void)name; (void)stack;
     std::lock_guard<std::mutex> lk(g_crt_thr_mtx);
@@ -1432,6 +1454,64 @@ void rc_unimplemented(uint32_t pc, const char* what) {'''
     return True
 
 
+def collect_tbh_fixes(gen: Path) -> list[tuple]:
+    """Scan gen/*.cpp untuk `RC_UNIMPL ... tbh/tbb`, hasilkan FIX otomatis.
+
+    translator tidak mendukung instruksi jump-table Thumb (tbb/tbh). Fix yang
+    dihasilkan membaca tabel dari guest memory saat runtime lalu melompat ke
+    awal blok rekompilasi terdekat lewat rc_nearest_block().
+    """
+    import re as _re
+    found: dict[int, str] = {}
+    for cpp in sorted(gen.glob("recompiled_part*.cpp")):
+        if cpp.name == GEN_FIX_FILE:
+            continue
+        try:
+            txt = cpp.read_text(encoding="utf-8", errors="surrogateescape")
+        except OSError:
+            continue
+        for m in _re.finditer(r'RC_UNIMPL\(0x([0-9a-f]+)u, "(tbb|tbh) \[pc, (r\d+)(?:, lsl (\d+))?\]"\)', txt):
+            addr = int(m.group(1), 16)
+            if addr in found:
+                continue
+            kind, reg, shift = m.group(2), m.group(3), m.group(4) or "0"
+            halfword = 1 if kind == "tbh" else 0
+            rreg = f"c.r[{int(reg[1:])}]"
+            body = (
+                "    // [AUTO_TBH] jump-table generik: baca tabel guest, lompat ke blok terdekat\n"
+                "    {\n"
+                f"        uint32_t _pc = 0x{addr:08x}u;\n"
+                "        uint32_t _base = (_pc + 4u) & ~3u;\n"
+                f"        uint32_t _idx = {rreg};\n"
+                f"        uint32_t _elem = _base + (_idx << {int(shift)}u);\n"
+                "        uint32_t _off = 0u;\n"
+                f"        if (c.in_range(_elem, {2 if halfword else 1}u)) _off = "
+                f"c.read{'16' if halfword else '8'}(_elem);\n"
+                f"        uint32_t _target = _base + (_off << {int(shift)}u);\n"
+                "        uint32_t _nb = rc_nearest_block(_target);\n"
+                "#if defined(__ANDROID__)\n"
+                "        { static uint32_t _tn = 0; if (_tn++ < 5u) {\n"
+                "            char _tb[160]; snprintf(_tb, sizeof(_tb),\n"
+                '              "AUTO_TBH: pc=0x%08x idx=0x%x target=0x%08x -> 0x%08x",\n'
+                "              _pc, _idx, _target, _nb);\n"
+                '            __android_log_print(ANDROID_LOG_WARN, "AUTO_TBH", "%s", _tb);\n'
+                '            if (rc_dbg_log_hook) rc_dbg_log_hook("AUTO_TBH", _tb);\n'
+                "        }}\n"
+                "#endif\n"
+                "        c.next_pc = _nb ? _nb : (_pc + 2u); return;\n"
+                "    }"
+            )
+            found[addr] = body
+    out = []
+    known = {f[0] for f in FIXES}
+    for addr in sorted(found):
+        if addr in known:
+            continue  # sudah ditangani FIX manual
+        # byte asli tidak dipakai (verify dilewati utk None)
+        out.append((addr, 1, None, found[addr]))
+    return out
+
+
 def main(argv: list[str]) -> int:
     args = [a for a in argv[1:]]
     elf = None
@@ -1466,7 +1546,12 @@ def main(argv: list[str]) -> int:
             return 1
         print(f"OK: {len(FIXES)} blok cocok dengan byte ELF.")
 
-    (gen / GEN_FIX_FILE).write_text(emit_fix_file(FIXES), encoding="utf-8")
+    # Kumpulkan fix otomatis untuk semua tbh/tbb yang tidak diterjemahkan.
+    auto_tbh = collect_tbh_fixes(gen)
+    all_fixes = list(FIXES) + auto_tbh
+    if auto_tbh:
+        print(f"OK: {len(auto_tbh)} fix tbh/tbb otomatis.")
+    (gen / GEN_FIX_FILE).write_text(emit_fix_file(all_fixes), encoding="utf-8")
     changed = ["part999"]
     if patch_registry(parts):
         changed.append("registry")
