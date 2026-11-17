@@ -576,6 +576,12 @@ _LOG_STUBS = set()  # 0x81815464/0x81815494 handled by _CRT_MEMCPY_STUBS below
 # stack tidak terisi -> count garbage 0x81970ea4 -> loop 0x8138979e forced exit
 # -> ret_pc=0 -> halt. Implementasikan memcpy NYATA di guest memory.
 _CRT_MEMCPY_STUBS = {0x81815464, 0x81815494, 0x818156d4}
+# [CRT_NEG] 0x81815ca4 = sceKernelCreateThread("Scratch",...). Return 0 membuat
+# guest mengambil jalur "sukses" 0x81386d9a yang berisi ratusan instruksi wide
+# yang TIDAK bisa diterjemahkan translator (RC_UNIMPL) -> fault. Return -1
+# membuat guest ambil jalur 0x81386d60 yang valid & sudah diperbaiki
+# (parser 0x81389498 kini dapat SCE_OK dari 0x81815364 -> r6 tidak garbage).
+_CRT_NEG_STUBS = {0x81815ca4}
 _ALL_STUB_ADDRS = sorted(set(ARM_STUB_ADDRS) | set(STUB_NID_MAP.keys()))
 for _a in _ALL_STUB_ADDRS:
     _log = ""
@@ -647,6 +653,23 @@ for _a in _ALL_STUB_ADDRS:
             "        }\n"
             "        c.r[0] = _dst;  // memcpy returns dest\n"
             "    }\n"
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+        )
+    elif _a in _CRT_NEG_STUBS:
+        _stub_body = (
+            f"    // [GEN_FIX {_a:08x}] CRT stub -> return -1 (jalur guest valid)\n"
+            "#if defined(__ANDROID__)\n"
+            "    { static uint32_t _cn_n = 0; ++_cn_n;\n"
+            "      if (_cn_n <= 3u || (_cn_n % 500u) == 0u) {\n"
+            f"        char _cn[220]; snprintf(_cn, sizeof(_cn),\n"
+            f"          \"CRT_NEG: stub=0x{_a:08x} caller=0x%08x r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x [#%u]\",\n"
+            "          c.r[14], c.r[0], c.r[1], c.r[2], c.r[3], _cn_n);\n"
+            "        __android_log_print(ANDROID_LOG_WARN, \"CRT_NEG\", \"%s\", _cn);\n"
+            "        if (rc_dbg_log_hook) rc_dbg_log_hook(\"CRT_NEG\", _cn);\n"
+            "      }\n"
+            "    }\n"
+            "#endif\n"
+            "    c.r[0] = 0xFFFFFFFFu;\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     elif _a in STUB_NID_MAP:
