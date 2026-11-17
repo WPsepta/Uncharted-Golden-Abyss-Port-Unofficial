@@ -349,6 +349,28 @@ FIXES = [
     if (c.cond(0x1)) { c.next_pc = 0x810a623au; return; }
     c.next_pc = 0x810a6204u; return;""",
     ),
+    (
+        0x81437542,
+        1,
+        "df e8 10 f0",
+        """    // [GEN_FIX 0x81437542] tbh [pc,r0,lsl1] -> jump-table hardcoded.
+    // guest window base 0x81000000, ELF file bias 0x1000.
+    static const uint32_t kTbl[16] = {
+        0x81435564u, 0x81437546u, 0x81437546u, 0x81437546u,
+        0x81437546u, 0x81437546u, 0x81437546u, 0x81437546u,
+        0x81437676u, 0x81437596u, 0x81437676u, 0x814375e6u,
+        0x81437650u, 0x81437650u, 0x81437650u, 0x81437650u};
+    uint32_t _idx = c.r[0];
+    if (_idx > 15u) _idx = 1u;
+#if defined(__ANDROID__)
+    { static uint32_t _jn=0; if (_jn++ < 3u) {
+        char _jb[128]; snprintf(_jb,sizeof(_jb),"TBH: idx=0x%x -> 0x%08x",c.r[0],kTbl[_idx]);
+        __android_log_print(ANDROID_LOG_WARN,"TBH_DEBUG","%s",_jb);
+        if (rc_dbg_log_hook) rc_dbg_log_hook("TBH_DEBUG",_jb);
+    }}
+#endif
+    c.next_pc = kTbl[_idx]; return;""",
+    ),
 ]
 
 ARM_STUB_ADDRS = [
