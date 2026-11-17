@@ -85,7 +85,8 @@ jobs:
           grep -q '\[LOADER_PHDR_FIX\]' app/src/main/cpp/recomp.cpp
           grep -q 'rc_dbg_clear' app/src/main/cpp/recomp.cpp
           grep -q 'return 0;' app/src/main/cpp/recomp.cpp
-          echo "OK: rc_hle_dispatch + telemetri fault (fault/unimpl/block-miss/HLE) + fix loader dipatch."
+          grep -q '\[NULL_INDIRECT\]' app/src/main/cpp/recomp.cpp
+          echo "OK: rc_hle_dispatch + telemetri fault (fault/unimpl/block-miss/HLE/null-indirect) + fix loader dipatch."
 
       - name: Patch blok rekompilasi yang bolong (GEN_FIX)
         run: |

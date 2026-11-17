@@ -38,6 +38,7 @@ LOADER_MARK = "[LOADER_PHDR_FIX]"
 PROBE_MARK = "[ENTRY_PROBE]"
 BLOCK_MISS_MARK = "[BLOCK_MISS]"
 STEP_HIST_MARK = "[STEP_HIST]"
+NULL_INDIRECT_MARK = "[NULL_INDIRECT]"
 
 BLOCK_MISS_OLD = """    if (!b) {
         RC_LOGE("no recompiled block at 0x%08x (from 0x%08x)", next_pc, current_pc);
@@ -121,6 +122,27 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
     ++blocks_run;
     if (faulted) return false;
     if (next_pc == 0) {
+        // [NULL_INDIRECT] `blx rX` / vtable call dengan target NULL (objek atau
+        // slot vtable belum terisi oleh stub) menghasilkan next_pc==0. Jangan
+        // halt: perlakukan sebagai stub return -1 ke LR seperti block-miss.
+        // LR==0 berarti akhir thread yang sah -> tetap halt di bawah.
+        if (rc_dbg_stub_missing && r[kRegLr] != 0) {
+            ++rc_dbg_null_indirect;
+            if (rc_dbg_null_indirect <= 8u) {
+                char _nb[160];
+                std::snprintf(_nb, sizeof(_nb),
+                    "[NULL_INDIRECT] pc=0x%08x lr=0x%08x -> stub return #%llu",
+                    current_pc, r[kRegLr], (unsigned long long)rc_dbg_null_indirect);
+                RC_LOGE("%s", _nb);
+                if (rc_dbg_log_hook) rc_dbg_log_hook("NULL_INDIRECT", _nb);
+            }
+            r[0] = 0xFFFFFFFFu;
+            next_pc = r[kRegLr] & ~1u;
+            thumb = r[kRegLr] & 1u;
+            cpsr = (cpsr & ~kFlagT) | (thumb ? kFlagT : 0);
+            ++blocks_run;
+            return true;
+        }
         // Dump trace saat halt (next_pc==0) agar selalu terlihat di log.
         char tbuf[1024]; size_t tp = 0;
         const uint32_t tn = rc_dbg_hist_n > 32u ? 32u : rc_dbg_hist_n;
@@ -190,6 +212,7 @@ uint32_t rc_dbg_missing_pc = 0;       // pc tanpa blok rekompilasi
 uint32_t rc_dbg_missing_from = 0;     // pc pemanggil saat blok tidak ditemukan
 uint32_t rc_dbg_stub_missing = 0;     // 1 = anggap fungsi tanpa blok sebagai stub -1
 uint64_t rc_dbg_stub_returns = 0;     // jumlah stub return (tidak di-reset per chunk)
+uint64_t rc_dbg_null_indirect = 0;    // [NULL_INDIRECT] blx reg dengan target NULL (vtable kosong)
 
 // Hook log opsional: diisi android_main.cpp supaya pesan HLE_MISSING /
 // RC_UNIMPL juga masuk ke recomp.log (tab Log), bukan hanya logcat.
@@ -488,7 +511,8 @@ def main(argv: list[str]) -> int:
 
     # Sanity check: semua penanda harus ada setelah patch.
     missing = [m for m in (GLOBALS_MARK, FAULT_MARK, UNIMPL_MARK, HLE_MARK,
-                           LOADER_MARK, PROBE_MARK, BLOCK_MISS_MARK, STEP_HIST_MARK)
+                           LOADER_MARK, PROBE_MARK, BLOCK_MISS_MARK, STEP_HIST_MARK,
+                           NULL_INDIRECT_MARK)
                if m not in text]
     if missing:
         print(f"error: penanda hilang setelah patch: {missing}", file=sys.stderr)
