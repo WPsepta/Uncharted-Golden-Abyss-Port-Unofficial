@@ -70,7 +70,7 @@ static void blk_81386ddc(Cpu& c) {
     if (c.cond(0xa)) { c.next_pc = 0x81386e1cu; return; }
     c.next_pc = 0x81386de2u; return;
 }
-// 0x81386de2  thumb  (17 insn)
+// 0x81386de2  thumb  (6 insn)
 static void blk_81386de2(Cpu& c) {
     (void)c;
     // 0x81386de2  movw r0, 0x5058
@@ -86,6 +86,11 @@ static void blk_81386de2(Cpu& c) {
     // 0x81386df6  bl 0x813833cc
     c.r[14] = 0x81386dfbu;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81386dfau);
+}
+// 0x81386dfa  thumb  (5 insn)
+static void blk_81386dfa(Cpu& c) {
+    (void)c;
     // 0x81386dfa  movw r1, 0x5090
     c.r[1] = 0x5090u;
     // 0x81386dfe  adds r5, r1, 0
@@ -97,6 +102,11 @@ static void blk_81386de2(Cpu& c) {
     // 0x81386e06  bl 0x81382d08
     c.r[14] = 0x81386e0bu;
     c.next_pc = 0x81382d08u; return;
+    RC_FALL(0x81386e0au);
+}
+// 0x81386e0a  thumb  (3 insn)
+static void blk_81386e0a(Cpu& c) {
+    (void)c;
     // 0x81386e0a  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x81386e0c  adds r0, r5, 0
@@ -104,9 +114,19 @@ static void blk_81386de2(Cpu& c) {
     // 0x81386e0e  bl 0x813833cc
     c.r[14] = 0x81386e13u;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81386e12u);
+}
+// 0x81386e12  thumb  (1 insn)
+static void blk_81386e12(Cpu& c) {
+    (void)c;
     // 0x81386e12  bl 0x81389768
     c.r[14] = 0x81386e17u;
     c.next_pc = 0x81389768u; return;
+    RC_FALL(0x81386e16u);
+}
+// 0x81386e16  thumb  (2 insn)
+static void blk_81386e16(Cpu& c) {
+    (void)c;
     // 0x81386e16  bkpt 0
     // bkpt/system @0x81386e16 -> no-op, lanjut ke 0x81386e18
     c.next_pc = 0x81386e18u; return;
@@ -181,7 +201,7 @@ static void blk_81386e5e(Cpu& c) {
     if (c.cond(0xa)) { c.next_pc = 0x81386e9eu; return; }
     c.next_pc = 0x81386e64u; return;
 }
-// 0x81386e64  thumb  (17 insn)
+// 0x81386e64  thumb  (6 insn)
 static void blk_81386e64(Cpu& c) {
     (void)c;
     // 0x81386e64  movw r0, 0x5058
@@ -197,6 +217,11 @@ static void blk_81386e64(Cpu& c) {
     // 0x81386e78  bl 0x813833cc
     c.r[14] = 0x81386e7du;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81386e7cu);
+}
+// 0x81386e7c  thumb  (5 insn)
+static void blk_81386e7c(Cpu& c) {
+    (void)c;
     // 0x81386e7c  movw r1, 0x5090
     c.r[1] = 0x5090u;
     // 0x81386e80  adds r5, r1, 0
@@ -208,6 +233,11 @@ static void blk_81386e64(Cpu& c) {
     // 0x81386e88  bl 0x81382d08
     c.r[14] = 0x81386e8du;
     c.next_pc = 0x81382d08u; return;
+    RC_FALL(0x81386e8cu);
+}
+// 0x81386e8c  thumb  (3 insn)
+static void blk_81386e8c(Cpu& c) {
+    (void)c;
     // 0x81386e8c  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x81386e8e  adds r0, r5, 0
@@ -215,9 +245,19 @@ static void blk_81386e64(Cpu& c) {
     // 0x81386e90  bl 0x813833cc
     c.r[14] = 0x81386e95u;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81386e94u);
+}
+// 0x81386e94  thumb  (1 insn)
+static void blk_81386e94(Cpu& c) {
+    (void)c;
     // 0x81386e94  bl 0x81389768
     c.r[14] = 0x81386e99u;
     c.next_pc = 0x81389768u; return;
+    RC_FALL(0x81386e98u);
+}
+// 0x81386e98  thumb  (2 insn)
+static void blk_81386e98(Cpu& c) {
+    (void)c;
     // 0x81386e98  bkpt 0
     // bkpt/system @0x81386e98 -> no-op, lanjut ke 0x81386e9a
     c.next_pc = 0x81386e9au; return;
@@ -292,7 +332,7 @@ static void blk_81386ee0(Cpu& c) {
     if (c.cond(0xa)) { c.next_pc = 0x81386f20u; return; }
     c.next_pc = 0x81386ee6u; return;
 }
-// 0x81386ee6  thumb  (17 insn)
+// 0x81386ee6  thumb  (6 insn)
 static void blk_81386ee6(Cpu& c) {
     (void)c;
     // 0x81386ee6  movw r0, 0x5058
@@ -308,6 +348,11 @@ static void blk_81386ee6(Cpu& c) {
     // 0x81386efa  bl 0x813833cc
     c.r[14] = 0x81386effu;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81386efeu);
+}
+// 0x81386efe  thumb  (5 insn)
+static void blk_81386efe(Cpu& c) {
+    (void)c;
     // 0x81386efe  movw r1, 0x5090
     c.r[1] = 0x5090u;
     // 0x81386f02  adds r5, r1, 0
@@ -319,6 +364,11 @@ static void blk_81386ee6(Cpu& c) {
     // 0x81386f0a  bl 0x81382d08
     c.r[14] = 0x81386f0fu;
     c.next_pc = 0x81382d08u; return;
+    RC_FALL(0x81386f0eu);
+}
+// 0x81386f0e  thumb  (3 insn)
+static void blk_81386f0e(Cpu& c) {
+    (void)c;
     // 0x81386f0e  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x81386f10  adds r0, r5, 0
@@ -326,9 +376,19 @@ static void blk_81386ee6(Cpu& c) {
     // 0x81386f12  bl 0x813833cc
     c.r[14] = 0x81386f17u;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81386f16u);
+}
+// 0x81386f16  thumb  (1 insn)
+static void blk_81386f16(Cpu& c) {
+    (void)c;
     // 0x81386f16  bl 0x81389768
     c.r[14] = 0x81386f1bu;
     c.next_pc = 0x81389768u; return;
+    RC_FALL(0x81386f1au);
+}
+// 0x81386f1a  thumb  (2 insn)
+static void blk_81386f1a(Cpu& c) {
+    (void)c;
     // 0x81386f1a  bkpt 0
     // bkpt/system @0x81386f1a -> no-op, lanjut ke 0x81386f1c
     c.next_pc = 0x81386f1cu; return;
@@ -403,7 +463,7 @@ static void blk_81386f64(Cpu& c) {
     if (c.cond(0xa)) { c.next_pc = 0x81386fa4u; return; }
     c.next_pc = 0x81386f6au; return;
 }
-// 0x81386f6a  thumb  (17 insn)
+// 0x81386f6a  thumb  (6 insn)
 static void blk_81386f6a(Cpu& c) {
     (void)c;
     // 0x81386f6a  movw r0, 0x5058
@@ -419,6 +479,11 @@ static void blk_81386f6a(Cpu& c) {
     // 0x81386f7e  bl 0x813833cc
     c.r[14] = 0x81386f83u;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81386f82u);
+}
+// 0x81386f82  thumb  (5 insn)
+static void blk_81386f82(Cpu& c) {
+    (void)c;
     // 0x81386f82  movw r1, 0x5090
     c.r[1] = 0x5090u;
     // 0x81386f86  adds r5, r1, 0
@@ -430,6 +495,11 @@ static void blk_81386f6a(Cpu& c) {
     // 0x81386f8e  bl 0x81382d08
     c.r[14] = 0x81386f93u;
     c.next_pc = 0x81382d08u; return;
+    RC_FALL(0x81386f92u);
+}
+// 0x81386f92  thumb  (3 insn)
+static void blk_81386f92(Cpu& c) {
+    (void)c;
     // 0x81386f92  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x81386f94  adds r0, r5, 0
@@ -437,9 +507,19 @@ static void blk_81386f6a(Cpu& c) {
     // 0x81386f96  bl 0x813833cc
     c.r[14] = 0x81386f9bu;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81386f9au);
+}
+// 0x81386f9a  thumb  (1 insn)
+static void blk_81386f9a(Cpu& c) {
+    (void)c;
     // 0x81386f9a  bl 0x81389768
     c.r[14] = 0x81386f9fu;
     c.next_pc = 0x81389768u; return;
+    RC_FALL(0x81386f9eu);
+}
+// 0x81386f9e  thumb  (2 insn)
+static void blk_81386f9e(Cpu& c) {
+    (void)c;
     // 0x81386f9e  bkpt 0
     // bkpt/system @0x81386f9e -> no-op, lanjut ke 0x81386fa0
     c.next_pc = 0x81386fa0u; return;
@@ -525,7 +605,7 @@ static void blk_81386fee(Cpu& c) {
     if (c.cond(0xa)) { c.next_pc = 0x8138702eu; return; }
     c.next_pc = 0x81386ff4u; return;
 }
-// 0x81386ff4  thumb  (17 insn)
+// 0x81386ff4  thumb  (6 insn)
 static void blk_81386ff4(Cpu& c) {
     (void)c;
     // 0x81386ff4  movw r0, 0x5058
@@ -541,6 +621,11 @@ static void blk_81386ff4(Cpu& c) {
     // 0x81387008  bl 0x813833cc
     c.r[14] = 0x8138700du;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x8138700cu);
+}
+// 0x8138700c  thumb  (5 insn)
+static void blk_8138700c(Cpu& c) {
+    (void)c;
     // 0x8138700c  movw r1, 0x5090
     c.r[1] = 0x5090u;
     // 0x81387010  adds r5, r1, 0
@@ -552,6 +637,11 @@ static void blk_81386ff4(Cpu& c) {
     // 0x81387018  bl 0x81382d08
     c.r[14] = 0x8138701du;
     c.next_pc = 0x81382d08u; return;
+    RC_FALL(0x8138701cu);
+}
+// 0x8138701c  thumb  (3 insn)
+static void blk_8138701c(Cpu& c) {
+    (void)c;
     // 0x8138701c  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x8138701e  adds r0, r5, 0
@@ -559,9 +649,19 @@ static void blk_81386ff4(Cpu& c) {
     // 0x81387020  bl 0x813833cc
     c.r[14] = 0x81387025u;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81387024u);
+}
+// 0x81387024  thumb  (1 insn)
+static void blk_81387024(Cpu& c) {
+    (void)c;
     // 0x81387024  bl 0x81389768
     c.r[14] = 0x81387029u;
     c.next_pc = 0x81389768u; return;
+    RC_FALL(0x81387028u);
+}
+// 0x81387028  thumb  (2 insn)
+static void blk_81387028(Cpu& c) {
+    (void)c;
     // 0x81387028  bkpt 0
     // bkpt/system @0x81387028 -> no-op, lanjut ke 0x8138702a
     c.next_pc = 0x8138702au; return;
@@ -808,7 +908,7 @@ static void blk_813870ce(Cpu& c) {
     if (c.cond(0x1)) { c.next_pc = 0x81387420u; return; }
     c.next_pc = 0x81387124u; return;
 }
-// 0x81387124  thumb  (5 insn)
+// 0x81387124  thumb  (2 insn)
 static void blk_81387124(Cpu& c) {
     (void)c;
     // 0x81387124  movs.w r0, 0x2c4
@@ -816,6 +916,11 @@ static void blk_81387124(Cpu& c) {
     // 0x81387128  bl 0x8144027c
     c.r[14] = 0x8138712du;
     c.next_pc = 0x8144027cu; return;
+    RC_FALL(0x8138712cu);
+}
+// 0x8138712c  thumb  (3 insn)
+static void blk_8138712c(Cpu& c) {
+    (void)c;
     // 0x8138712c  adds r3, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[3] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x8138712e  mov.w r0, 0
@@ -871,7 +976,7 @@ static void blk_8138714c(Cpu& c) {
     c.r[14] = 0x81387167u;
     { uint32_t t = c.r[12] & ~1u; c.next_pc = t; return; }
 }
-// 0x81387166  thumb  (5 insn)
+// 0x81387166  thumb  (2 insn)
 static void blk_81387166(Cpu& c) {
     (void)c;
     // 0x81387166  movs.w r0, 0x2c4
@@ -879,6 +984,11 @@ static void blk_81387166(Cpu& c) {
     // 0x8138716a  bl 0x8144027c
     c.r[14] = 0x8138716fu;
     c.next_pc = 0x8144027cu; return;
+    RC_FALL(0x8138716eu);
+}
+// 0x8138716e  thumb  (3 insn)
+static void blk_8138716e(Cpu& c) {
+    (void)c;
     // 0x8138716e  adds r3, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[3] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x81387170  mov.w r0, 0
@@ -934,7 +1044,7 @@ static void blk_8138718e(Cpu& c) {
     c.r[14] = 0x813871a9u;
     { uint32_t t = c.r[12] & ~1u; c.next_pc = t; return; }
 }
-// 0x813871a8  thumb  (5 insn)
+// 0x813871a8  thumb  (2 insn)
 static void blk_813871a8(Cpu& c) {
     (void)c;
     // 0x813871a8  movs.w r0, 0x2c4
@@ -942,6 +1052,11 @@ static void blk_813871a8(Cpu& c) {
     // 0x813871ac  bl 0x8144027c
     c.r[14] = 0x813871b1u;
     c.next_pc = 0x8144027cu; return;
+    RC_FALL(0x813871b0u);
+}
+// 0x813871b0  thumb  (3 insn)
+static void blk_813871b0(Cpu& c) {
+    (void)c;
     // 0x813871b0  adds r3, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[3] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x813871b2  mov.w r0, 0
@@ -997,7 +1112,7 @@ static void blk_813871d0(Cpu& c) {
     c.r[14] = 0x813871ebu;
     { uint32_t t = c.r[12] & ~1u; c.next_pc = t; return; }
 }
-// 0x813871ea  thumb  (5 insn)
+// 0x813871ea  thumb  (2 insn)
 static void blk_813871ea(Cpu& c) {
     (void)c;
     // 0x813871ea  movs.w r0, 0x2c4
@@ -1005,6 +1120,11 @@ static void blk_813871ea(Cpu& c) {
     // 0x813871ee  bl 0x8144027c
     c.r[14] = 0x813871f3u;
     c.next_pc = 0x8144027cu; return;
+    RC_FALL(0x813871f2u);
+}
+// 0x813871f2  thumb  (3 insn)
+static void blk_813871f2(Cpu& c) {
+    (void)c;
     // 0x813871f2  adds r3, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[3] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x813871f4  mov.w r0, 0
@@ -1060,7 +1180,7 @@ static void blk_81387212(Cpu& c) {
     c.r[14] = 0x8138722du;
     { uint32_t t = c.r[12] & ~1u; c.next_pc = t; return; }
 }
-// 0x8138722c  thumb  (5 insn)
+// 0x8138722c  thumb  (2 insn)
 static void blk_8138722c(Cpu& c) {
     (void)c;
     // 0x8138722c  movs.w r0, 0x2c4
@@ -1068,6 +1188,11 @@ static void blk_8138722c(Cpu& c) {
     // 0x81387230  bl 0x8144027c
     c.r[14] = 0x81387235u;
     c.next_pc = 0x8144027cu; return;
+    RC_FALL(0x81387234u);
+}
+// 0x81387234  thumb  (3 insn)
+static void blk_81387234(Cpu& c) {
+    (void)c;
     // 0x81387234  adds r3, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[3] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x81387236  mov.w r0, 0
@@ -1123,7 +1248,7 @@ static void blk_81387254(Cpu& c) {
     c.r[14] = 0x8138726fu;
     { uint32_t t = c.r[12] & ~1u; c.next_pc = t; return; }
 }
-// 0x8138726e  thumb  (5 insn)
+// 0x8138726e  thumb  (2 insn)
 static void blk_8138726e(Cpu& c) {
     (void)c;
     // 0x8138726e  movs.w r0, 0x2c4
@@ -1131,6 +1256,11 @@ static void blk_8138726e(Cpu& c) {
     // 0x81387272  bl 0x8144027c
     c.r[14] = 0x81387277u;
     c.next_pc = 0x8144027cu; return;
+    RC_FALL(0x81387276u);
+}
+// 0x81387276  thumb  (3 insn)
+static void blk_81387276(Cpu& c) {
+    (void)c;
     // 0x81387276  adds r3, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[3] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x81387278  mov.w r0, 0
@@ -1180,7 +1310,7 @@ static void blk_8138728c(Cpu& c) {
     c.r[14] = 0x813872a7u;
     { uint32_t t = c.r[12] & ~1u; c.next_pc = t; return; }
 }
-// 0x813872a6  thumb  (5 insn)
+// 0x813872a6  thumb  (2 insn)
 static void blk_813872a6(Cpu& c) {
     (void)c;
     // 0x813872a6  movs.w r0, 0x2c4
@@ -1188,6 +1318,11 @@ static void blk_813872a6(Cpu& c) {
     // 0x813872aa  bl 0x8144027c
     c.r[14] = 0x813872afu;
     c.next_pc = 0x8144027cu; return;
+    RC_FALL(0x813872aeu);
+}
+// 0x813872ae  thumb  (3 insn)
+static void blk_813872ae(Cpu& c) {
+    (void)c;
     // 0x813872ae  adds r3, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[3] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x813872b0  mov.w r0, 0
@@ -1239,7 +1374,7 @@ static void blk_813872ce(Cpu& c) {
     c.r[14] = 0x813872e5u;
     { uint32_t t = c.r[12] & ~1u; c.next_pc = t; return; }
 }
-// 0x813872e4  thumb  (33 insn)
+// 0x813872e4  thumb  (30 insn)
 static void blk_813872e4(Cpu& c) {
     (void)c;
     // 0x813872e4  ldr r1, [r4]
@@ -1303,6 +1438,11 @@ static void blk_813872e4(Cpu& c) {
     // 0x81387340  bl 0x8144027c
     c.r[14] = 0x81387345u;
     c.next_pc = 0x8144027cu; return;
+    RC_FALL(0x81387344u);
+}
+// 0x81387344  thumb  (3 insn)
+static void blk_81387344(Cpu& c) {
+    (void)c;
     // 0x81387344  adds r3, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[3] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x81387346  mov.w r0, 0
@@ -1323,7 +1463,7 @@ static void blk_8138734c(Cpu& c) {
     c.next_pc = 0x8143fe44u; return;
     RC_FALL(0x81387354u);
 }
-// 0x81387354  thumb  (48 insn)
+// 0x81387354  thumb  (9 insn)
 static void blk_81387354(Cpu& c) {
     (void)c;
     // 0x81387354  movw r4, 0xb524
@@ -1345,6 +1485,11 @@ static void blk_81387354(Cpu& c) {
     // 0x8138736c  bl 0x814401b0
     c.r[14] = 0x81387371u;
     c.next_pc = 0x814401b0u; return;
+    RC_FALL(0x81387370u);
+}
+// 0x81387370  thumb  (7 insn)
+static void blk_81387370(Cpu& c) {
+    (void)c;
     // 0x81387370  ldr r0, [r4]
     c.r[0] = c.read32(c.r[4]);
     // 0x81387372  movw r1, 0xb528
@@ -1360,6 +1505,11 @@ static void blk_81387354(Cpu& c) {
     // 0x81387382  bl 0x814401b0
     c.r[14] = 0x81387387u;
     c.next_pc = 0x814401b0u; return;
+    RC_FALL(0x81387386u);
+}
+// 0x81387386  thumb  (7 insn)
+static void blk_81387386(Cpu& c) {
+    (void)c;
     // 0x81387386  ldr r0, [r4]
     c.r[0] = c.read32(c.r[4]);
     // 0x81387388  movw r1, 0xb52c
@@ -1375,6 +1525,11 @@ static void blk_81387354(Cpu& c) {
     // 0x81387398  bl 0x814401b0
     c.r[14] = 0x8138739du;
     c.next_pc = 0x814401b0u; return;
+    RC_FALL(0x8138739cu);
+}
+// 0x8138739c  thumb  (5 insn)
+static void blk_8138739c(Cpu& c) {
+    (void)c;
     // 0x8138739c  ldr r0, [r4]
     c.r[0] = c.read32(c.r[4]);
     // 0x8138739e  movs.w r1, 0x240
@@ -1386,6 +1541,11 @@ static void blk_81387354(Cpu& c) {
     // 0x813873a6  bl 0x814401b0
     c.r[14] = 0x813873abu;
     c.next_pc = 0x814401b0u; return;
+    RC_FALL(0x813873aau);
+}
+// 0x813873aa  thumb  (7 insn)
+static void blk_813873aa(Cpu& c) {
+    (void)c;
     // 0x813873aa  ldr r0, [r4]
     c.r[0] = c.read32(c.r[4]);
     // 0x813873ac  movw r1, 0xb534
@@ -1401,6 +1561,11 @@ static void blk_81387354(Cpu& c) {
     // 0x813873bc  bl 0x814401b0
     c.r[14] = 0x813873c1u;
     c.next_pc = 0x814401b0u; return;
+    RC_FALL(0x813873c0u);
+}
+// 0x813873c0  thumb  (7 insn)
+static void blk_813873c0(Cpu& c) {
+    (void)c;
     // 0x813873c0  ldr r0, [r4]
     c.r[0] = c.read32(c.r[4]);
     // 0x813873c2  movw r1, 0xb538
@@ -1416,6 +1581,11 @@ static void blk_81387354(Cpu& c) {
     // 0x813873d2  bl 0x814401b0
     c.r[14] = 0x813873d7u;
     c.next_pc = 0x814401b0u; return;
+    RC_FALL(0x813873d6u);
+}
+// 0x813873d6  thumb  (6 insn)
+static void blk_813873d6(Cpu& c) {
+    (void)c;
     // 0x813873d6  ldr r0, [r4]
     c.r[0] = c.read32(c.r[4]);
     // 0x813873d8  movw r1, 0x5a4
@@ -1430,7 +1600,7 @@ static void blk_81387354(Cpu& c) {
     if (c.cond(0x0)) { c.next_pc = 0x81387404u; return; }
     c.next_pc = 0x813873e6u; return;
 }
-// 0x813873e6  thumb  (9 insn)
+// 0x813873e6  thumb  (6 insn)
 static void blk_813873e6(Cpu& c) {
     (void)c;
     // 0x813873e6  movw r1, 0xb540
@@ -1446,6 +1616,11 @@ static void blk_813873e6(Cpu& c) {
     // 0x813873f6  bl 0x814401b0
     c.r[14] = 0x813873fbu;
     c.next_pc = 0x814401b0u; return;
+    RC_FALL(0x813873fau);
+}
+// 0x813873fa  thumb  (3 insn)
+static void blk_813873fa(Cpu& c) {
+    (void)c;
     // 0x813873fa  movw r0, 0xb524
     c.r[0] = 0xb524u;
     // 0x813873fe  movt r0, 0x8195
@@ -1538,7 +1713,7 @@ static void blk_81387444(Cpu& c) {
     c.r[14] = 0x81387455u;
     c.next_pc = 0x818153e4u; return;
 }
-// 0x81387454  thumb  (18 insn)
+// 0x81387454  thumb  (15 insn)
 static void blk_81387454(Cpu& c) {
     (void)c;
     // 0x81387454  movs r0, 0x10
@@ -1572,6 +1747,11 @@ static void blk_81387454(Cpu& c) {
     // 0x81387476  bl 0x81387a02
     c.r[14] = 0x8138747bu;
     c.next_pc = 0x81387a02u; return;
+    RC_FALL(0x8138747au);
+}
+// 0x8138747a  thumb  (3 insn)
+static void blk_8138747a(Cpu& c) {
+    (void)c;
     // 0x8138747a  cmp r0, 0
     RC_SUB_FLAGS(c.r[0], 0x0u, 0u);
     // 0x8138747c  mov.w r4, 0
@@ -1580,17 +1760,22 @@ static void blk_81387454(Cpu& c) {
     if (c.cond(0x0)) { c.next_pc = 0x81387488u; return; }
     c.next_pc = 0x81387482u; return;
 }
-// 0x81387482  thumb  (2 insn)
+// 0x81387482  thumb  (1 insn)
 static void blk_81387482(Cpu& c) {
     (void)c;
     // 0x81387482  bl 0x813892fc
     c.r[14] = 0x81387487u;
     c.next_pc = 0x813892fcu; return;
+    RC_FALL(0x81387486u);
+}
+// 0x81387486  thumb  (1 insn)
+static void blk_81387486(Cpu& c) {
+    (void)c;
     // 0x81387486  adds r4, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[4] = v; RC_ADD_FLAGS(a, b, 0u); }
     RC_FALL(0x81387488u);
 }
-// 0x81387488  thumb  (9 insn)
+// 0x81387488  thumb  (6 insn)
 static void blk_81387488(Cpu& c) {
     (void)c;
     // 0x81387488  movw r0, 0xb544
@@ -1606,6 +1791,11 @@ static void blk_81387488(Cpu& c) {
     // 0x81387496  bl 0x81387a02
     c.r[14] = 0x8138749bu;
     c.next_pc = 0x81387a02u; return;
+    RC_FALL(0x8138749au);
+}
+// 0x8138749a  thumb  (3 insn)
+static void blk_8138749a(Cpu& c) {
+    (void)c;
     // 0x8138749a  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x8138749c  mov.w r0, 0
@@ -1630,7 +1820,7 @@ static void blk_813874a2(Cpu& c) {
     c.next_pc = 0x8138913au; return;
     RC_FALL(0x813874aeu);
 }
-// 0x813874ae  thumb  (12 insn)
+// 0x813874ae  thumb  (3 insn)
 static void blk_813874ae(Cpu& c) {
     (void)c;
     // 0x813874ae  adds r1, r0, 0
@@ -1640,6 +1830,11 @@ static void blk_813874ae(Cpu& c) {
     // 0x813874b2  bl 0x8138937e
     c.r[14] = 0x813874b7u;
     c.next_pc = 0x8138937eu; return;
+    RC_FALL(0x813874b6u);
+}
+// 0x813874b6  thumb  (6 insn)
+static void blk_813874b6(Cpu& c) {
+    (void)c;
     // 0x813874b6  movw r0, 0xb544
     c.r[0] = 0xb544u;
     // 0x813874ba  movt r0, 0x8195
@@ -1653,6 +1848,11 @@ static void blk_813874ae(Cpu& c) {
     // 0x813874c4  bl 0x81387a02
     c.r[14] = 0x813874c9u;
     c.next_pc = 0x81387a02u; return;
+    RC_FALL(0x813874c8u);
+}
+// 0x813874c8  thumb  (3 insn)
+static void blk_813874c8(Cpu& c) {
+    (void)c;
     // 0x813874c8  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x813874ca  mov.w r0, 0
@@ -1677,7 +1877,7 @@ static void blk_813874d0(Cpu& c) {
     c.next_pc = 0x8138913au; return;
     RC_FALL(0x813874dcu);
 }
-// 0x813874dc  thumb  (12 insn)
+// 0x813874dc  thumb  (3 insn)
 static void blk_813874dc(Cpu& c) {
     (void)c;
     // 0x813874dc  adds r1, r0, 0
@@ -1687,6 +1887,11 @@ static void blk_813874dc(Cpu& c) {
     // 0x813874e0  bl 0x8138937e
     c.r[14] = 0x813874e5u;
     c.next_pc = 0x8138937eu; return;
+    RC_FALL(0x813874e4u);
+}
+// 0x813874e4  thumb  (6 insn)
+static void blk_813874e4(Cpu& c) {
+    (void)c;
     // 0x813874e4  movw r0, 0xb544
     c.r[0] = 0xb544u;
     // 0x813874e8  movt r0, 0x8195
@@ -1700,6 +1905,11 @@ static void blk_813874dc(Cpu& c) {
     // 0x813874f2  bl 0x81387a02
     c.r[14] = 0x813874f7u;
     c.next_pc = 0x81387a02u; return;
+    RC_FALL(0x813874f6u);
+}
+// 0x813874f6  thumb  (3 insn)
+static void blk_813874f6(Cpu& c) {
+    (void)c;
     // 0x813874f6  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     // 0x813874f8  mov.w r0, 0
@@ -1724,7 +1934,7 @@ static void blk_813874fe(Cpu& c) {
     c.next_pc = 0x8138913au; return;
     RC_FALL(0x8138750au);
 }
-// 0x8138750a  thumb  (12 insn)
+// 0x8138750a  thumb  (3 insn)
 static void blk_8138750a(Cpu& c) {
     (void)c;
     // 0x8138750a  adds r1, r0, 0
@@ -1734,6 +1944,11 @@ static void blk_8138750a(Cpu& c) {
     // 0x8138750e  bl 0x8138937e
     c.r[14] = 0x81387513u;
     c.next_pc = 0x8138937eu; return;
+    RC_FALL(0x81387512u);
+}
+// 0x81387512  thumb  (6 insn)
+static void blk_81387512(Cpu& c) {
+    (void)c;
     // 0x81387512  movw r0, 0xb544
     c.r[0] = 0xb544u;
     // 0x81387516  movt r0, 0x8195
@@ -1747,6 +1962,11 @@ static void blk_8138750a(Cpu& c) {
     // 0x81387520  bl 0x81387a02
     c.r[14] = 0x81387525u;
     c.next_pc = 0x81387a02u; return;
+    RC_FALL(0x81387524u);
+}
+// 0x81387524  thumb  (3 insn)
+static void blk_81387524(Cpu& c) {
+    (void)c;
     // 0x81387524  cmp r0, 0
     RC_SUB_FLAGS(c.r[0], 0x0u, 0u);
     // 0x81387526  mov.w r1, 0
@@ -1755,7 +1975,7 @@ static void blk_8138750a(Cpu& c) {
     if (c.cond(0x0)) { c.next_pc = 0x81387538u; return; }
     c.next_pc = 0x8138752cu; return;
 }
-// 0x8138752c  thumb  (5 insn)
+// 0x8138752c  thumb  (4 insn)
 static void blk_8138752c(Cpu& c) {
     (void)c;
     // 0x8138752c  movs r1, 4
@@ -1767,11 +1987,16 @@ static void blk_8138752c(Cpu& c) {
     // 0x81387532  bl 0x8138913a
     c.r[14] = 0x81387537u;
     c.next_pc = 0x8138913au; return;
+    RC_FALL(0x81387536u);
+}
+// 0x81387536  thumb  (1 insn)
+static void blk_81387536(Cpu& c) {
+    (void)c;
     // 0x81387536  adds r1, r0, 0
     { uint32_t a = c.r[0], b = 0x0u; uint32_t v = ((c.r[0]) + (0x0u)); c.r[1] = v; RC_ADD_FLAGS(a, b, 0u); }
     RC_FALL(0x81387538u);
 }
-// 0x81387538  thumb  (3 insn)
+// 0x81387538  thumb  (2 insn)
 static void blk_81387538(Cpu& c) {
     (void)c;
     // 0x81387538  adds r0, r4, 0
@@ -1779,6 +2004,11 @@ static void blk_81387538(Cpu& c) {
     // 0x8138753a  bl 0x8138937e
     c.r[14] = 0x8138753fu;
     c.next_pc = 0x8138937eu; return;
+    RC_FALL(0x8138753eu);
+}
+// 0x8138753e  thumb  (1 insn)
+static void blk_8138753e(Cpu& c) {
+    (void)c;
     // 0x8138753e  movs r0, 1
     { uint32_t v = 0x1u; c.r[0] = v; RC_SET_NZ(v); }
     RC_FALL(0x81387540u);
@@ -1837,7 +2067,7 @@ static void blk_81387544(Cpu& c) {
     if (c.cond(0x9)) { c.next_pc = 0x81387596u; return; }
     c.next_pc = 0x81387568u; return;
 }
-// 0x81387568  thumb  (11 insn)
+// 0x81387568  thumb  (6 insn)
 static void blk_81387568(Cpu& c) {
     (void)c;
     // 0x81387568  movw r0, 0x5058
@@ -1853,6 +2083,11 @@ static void blk_81387568(Cpu& c) {
     // 0x8138757c  bl 0x813833cc
     c.r[14] = 0x81387581u;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x81387580u);
+}
+// 0x81387580  thumb  (3 insn)
+static void blk_81387580(Cpu& c) {
+    (void)c;
     // 0x81387580  movw r0, 0x5114
     c.r[0] = 0x5114u;
     // 0x81387584  movt r0, 0x8188
@@ -1860,9 +2095,19 @@ static void blk_81387568(Cpu& c) {
     // 0x81387588  bl 0x813833cc
     c.r[14] = 0x8138758du;
     c.next_pc = 0x813833ccu; return;
+    RC_FALL(0x8138758cu);
+}
+// 0x8138758c  thumb  (1 insn)
+static void blk_8138758c(Cpu& c) {
+    (void)c;
     // 0x8138758c  bl 0x81389768
     c.r[14] = 0x81387591u;
     c.next_pc = 0x81389768u; return;
+    RC_FALL(0x81387590u);
+}
+// 0x81387590  thumb  (1 insn)
+static void blk_81387590(Cpu& c) {
+    (void)c;
     // 0x81387590  bkpt 0
     // bkpt/system @0x81387590 -> no-op, lanjut ke 0x81387592
     c.next_pc = 0x81387592u; return;
@@ -1920,27 +2165,47 @@ extern const BlockDesc rc_blocks_part998[] = {
     {0x81386dc2u, 1u, &blk_81386dc2},
     {0x81386ddcu, 1u, &blk_81386ddc},
     {0x81386de2u, 1u, &blk_81386de2},
+    {0x81386dfau, 1u, &blk_81386dfa},
+    {0x81386e0au, 1u, &blk_81386e0a},
+    {0x81386e12u, 1u, &blk_81386e12},
+    {0x81386e16u, 1u, &blk_81386e16},
     {0x81386e1cu, 1u, &blk_81386e1c},
     {0x81386e3cu, 1u, &blk_81386e3c},
     {0x81386e44u, 1u, &blk_81386e44},
     {0x81386e5eu, 1u, &blk_81386e5e},
     {0x81386e64u, 1u, &blk_81386e64},
+    {0x81386e7cu, 1u, &blk_81386e7c},
+    {0x81386e8cu, 1u, &blk_81386e8c},
+    {0x81386e94u, 1u, &blk_81386e94},
+    {0x81386e98u, 1u, &blk_81386e98},
     {0x81386e9eu, 1u, &blk_81386e9e},
     {0x81386ebeu, 1u, &blk_81386ebe},
     {0x81386ec6u, 1u, &blk_81386ec6},
     {0x81386ee0u, 1u, &blk_81386ee0},
     {0x81386ee6u, 1u, &blk_81386ee6},
+    {0x81386efeu, 1u, &blk_81386efe},
+    {0x81386f0eu, 1u, &blk_81386f0e},
+    {0x81386f16u, 1u, &blk_81386f16},
+    {0x81386f1au, 1u, &blk_81386f1a},
     {0x81386f20u, 1u, &blk_81386f20},
     {0x81386f42u, 1u, &blk_81386f42},
     {0x81386f4au, 1u, &blk_81386f4a},
     {0x81386f64u, 1u, &blk_81386f64},
     {0x81386f6au, 1u, &blk_81386f6a},
+    {0x81386f82u, 1u, &blk_81386f82},
+    {0x81386f92u, 1u, &blk_81386f92},
+    {0x81386f9au, 1u, &blk_81386f9a},
+    {0x81386f9eu, 1u, &blk_81386f9e},
     {0x81386fa4u, 1u, &blk_81386fa4},
     {0x81386fbcu, 1u, &blk_81386fbc},
     {0x81386fd4u, 1u, &blk_81386fd4},
     {0x81386fdcu, 1u, &blk_81386fdc},
     {0x81386feeu, 1u, &blk_81386fee},
     {0x81386ff4u, 1u, &blk_81386ff4},
+    {0x8138700cu, 1u, &blk_8138700c},
+    {0x8138701cu, 1u, &blk_8138701c},
+    {0x81387024u, 1u, &blk_81387024},
+    {0x81387028u, 1u, &blk_81387028},
     {0x8138702eu, 1u, &blk_8138702e},
     {0x81387042u, 1u, &blk_81387042},
     {0x81387080u, 1u, &blk_81387080},
@@ -1952,30 +2217,45 @@ extern const BlockDesc rc_blocks_part998[] = {
     {0x813870c2u, 1u, &blk_813870c2},
     {0x813870ceu, 1u, &blk_813870ce},
     {0x81387124u, 1u, &blk_81387124},
+    {0x8138712cu, 1u, &blk_8138712c},
     {0x81387134u, 1u, &blk_81387134},
     {0x8138714cu, 1u, &blk_8138714c},
     {0x81387166u, 1u, &blk_81387166},
+    {0x8138716eu, 1u, &blk_8138716e},
     {0x81387176u, 1u, &blk_81387176},
     {0x8138718eu, 1u, &blk_8138718e},
     {0x813871a8u, 1u, &blk_813871a8},
+    {0x813871b0u, 1u, &blk_813871b0},
     {0x813871b8u, 1u, &blk_813871b8},
     {0x813871d0u, 1u, &blk_813871d0},
     {0x813871eau, 1u, &blk_813871ea},
+    {0x813871f2u, 1u, &blk_813871f2},
     {0x813871fau, 1u, &blk_813871fa},
     {0x81387212u, 1u, &blk_81387212},
     {0x8138722cu, 1u, &blk_8138722c},
+    {0x81387234u, 1u, &blk_81387234},
     {0x8138723cu, 1u, &blk_8138723c},
     {0x81387254u, 1u, &blk_81387254},
     {0x8138726eu, 1u, &blk_8138726e},
+    {0x81387276u, 1u, &blk_81387276},
     {0x8138727eu, 1u, &blk_8138727e},
     {0x8138728cu, 1u, &blk_8138728c},
     {0x813872a6u, 1u, &blk_813872a6},
+    {0x813872aeu, 1u, &blk_813872ae},
     {0x813872b6u, 1u, &blk_813872b6},
     {0x813872ceu, 1u, &blk_813872ce},
     {0x813872e4u, 1u, &blk_813872e4},
+    {0x81387344u, 1u, &blk_81387344},
     {0x8138734cu, 1u, &blk_8138734c},
     {0x81387354u, 1u, &blk_81387354},
+    {0x81387370u, 1u, &blk_81387370},
+    {0x81387386u, 1u, &blk_81387386},
+    {0x8138739cu, 1u, &blk_8138739c},
+    {0x813873aau, 1u, &blk_813873aa},
+    {0x813873c0u, 1u, &blk_813873c0},
+    {0x813873d6u, 1u, &blk_813873d6},
     {0x813873e6u, 1u, &blk_813873e6},
+    {0x813873fau, 1u, &blk_813873fa},
     {0x81387404u, 1u, &blk_81387404},
     {0x8138740eu, 1u, &blk_8138740e},
     {0x8138741cu, 1u, &blk_8138741c},
@@ -1983,19 +2263,33 @@ extern const BlockDesc rc_blocks_part998[] = {
     {0x81387434u, 1u, &blk_81387434},
     {0x81387444u, 1u, &blk_81387444},
     {0x81387454u, 1u, &blk_81387454},
+    {0x8138747au, 1u, &blk_8138747a},
     {0x81387482u, 1u, &blk_81387482},
+    {0x81387486u, 1u, &blk_81387486},
     {0x81387488u, 1u, &blk_81387488},
+    {0x8138749au, 1u, &blk_8138749a},
     {0x813874a2u, 1u, &blk_813874a2},
     {0x813874aeu, 1u, &blk_813874ae},
+    {0x813874b6u, 1u, &blk_813874b6},
+    {0x813874c8u, 1u, &blk_813874c8},
     {0x813874d0u, 1u, &blk_813874d0},
     {0x813874dcu, 1u, &blk_813874dc},
+    {0x813874e4u, 1u, &blk_813874e4},
+    {0x813874f6u, 1u, &blk_813874f6},
     {0x813874feu, 1u, &blk_813874fe},
     {0x8138750au, 1u, &blk_8138750a},
+    {0x81387512u, 1u, &blk_81387512},
+    {0x81387524u, 1u, &blk_81387524},
     {0x8138752cu, 1u, &blk_8138752c},
+    {0x81387536u, 1u, &blk_81387536},
     {0x81387538u, 1u, &blk_81387538},
+    {0x8138753eu, 1u, &blk_8138753e},
     {0x81387540u, 1u, &blk_81387540},
     {0x81387544u, 1u, &blk_81387544},
     {0x81387568u, 1u, &blk_81387568},
+    {0x81387580u, 1u, &blk_81387580},
+    {0x8138758cu, 1u, &blk_8138758c},
+    {0x81387590u, 1u, &blk_81387590},
     {0x8138974eu, 1u, &blk_8138974e},
     {0x81389756u, 1u, &blk_81389756},
     {0x81389758u, 1u, &blk_81389758},

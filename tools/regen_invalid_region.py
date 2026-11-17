@@ -114,8 +114,8 @@ def is_terminator(text: str) -> bool:
     t = text.strip().lower()
     if t.startswith("b ") or t.startswith("b.") or re.match(r"^b(eq|ne|cs|hs|cc|lo|mi|pl|vs|vc|hi|ls|ge|lt|gt|le|al)\b", t):
         return True
-    if t.startswith("bx ") or t.startswith("blx "):
-        return True
+    if t.startswith("bx ") or t.startswith("blx ") or t.startswith("bl "):
+        return True  # bl = call: blok harus dipotong setelahnya (LR = return)
     if t.startswith("pop ") and "pc" in t:
         return True
     return False
