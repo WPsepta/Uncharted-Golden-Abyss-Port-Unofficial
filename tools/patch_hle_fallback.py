@@ -40,6 +40,7 @@ BLOCK_MISS_MARK = "[BLOCK_MISS]"
 STEP_HIST_MARK = "[STEP_HIST]"
 NULL_INDIRECT_MARK = "[NULL_INDIRECT]"
 SPIN_DETECT_MARK = "[SPIN_DETECT]"
+MEM_TOLERATE_MARK = "[MEM_TOLERATE]"
 
 BLOCK_MISS_OLD = """    if (!b) {
         RC_LOGE("no recompiled block at 0x%08x (from 0x%08x)", next_pc, current_pc);
@@ -273,14 +274,17 @@ void rc_dbg_clear(void) {
 '''
 
 FAULT_BODY = r'''static void fault(Cpu& c, uint32_t addr, bool write) {
-    // [NULLPAGE_TOLERATE] Akses ke null-page (addr < 0x10000) adalah
-    // null-pointer + offset dari stub CRT yang belum punya state; abaikan
-    // supaya guest tidak berhenti. Alamat lain tetap fault seperti biasa.
-    if (addr < 0x10000u) {
-        static uint32_t _np_n = 0;
-        if (_np_n++ < 5u || (_np_n % 1000u) == 0u) {
-            RC_LOGE("nullpage %s ignored: addr=0x%08x pc=0x%08x",
-                    write ? "write" : "read", addr, c.current_pc);
+    // [MEM_TOLERATE] Akses di luar guest window — mayoritas pointer stub yang
+    // belum punya state atau pointer terpotong (mis. 0x008195b5). read32 sudah
+    // mengembalikan 0 dan write32 di-drop, jadi abaikan supaya guest lanjut.
+    // Log dibatasi: 8 pertama lalu tiap 10000.
+    {
+        static uint64_t _mt_n = 0;
+        ++_mt_n;
+        if (_mt_n <= 8u || (_mt_n % 10000u) == 0u) {
+            RC_LOGE("mem tolerate %s addr=0x%08x pc=0x%08x #%llu",
+                    write ? "write" : "read", addr, c.current_pc,
+                    (unsigned long long)_mt_n);
         }
         return;
     }
@@ -538,7 +542,8 @@ def main(argv: list[str]) -> int:
     # Sanity check: semua penanda harus ada setelah patch.
     missing = [m for m in (GLOBALS_MARK, FAULT_MARK, UNIMPL_MARK, HLE_MARK,
                            LOADER_MARK, PROBE_MARK, BLOCK_MISS_MARK, STEP_HIST_MARK,
-                           NULL_INDIRECT_MARK, SPIN_DETECT_MARK)
+                           NULL_INDIRECT_MARK, SPIN_DETECT_MARK,
+                           MEM_TOLERATE_MARK)
                if m not in text]
     if missing:
         print(f"error: penanda hilang setelah patch: {missing}", file=sys.stderr)

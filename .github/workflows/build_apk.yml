@@ -87,7 +87,8 @@ jobs:
           grep -q 'return 0;' app/src/main/cpp/recomp.cpp
           grep -q '\[NULL_INDIRECT\]' app/src/main/cpp/recomp.cpp
           grep -q '\[SPIN_DETECT\]' app/src/main/cpp/recomp.cpp
-          echo "OK: rc_hle_dispatch + telemetri fault (fault/unimpl/block-miss/HLE/null-indirect/spin) + fix loader dipatch."
+          grep -q '\[MEM_TOLERATE\]' app/src/main/cpp/recomp.cpp
+          echo "OK: rc_hle_dispatch + telemetri fault (fault/unimpl/block-miss/HLE/null-indirect/spin/mem-tolerate) + fix loader dipatch."
 
       - name: Patch blok rekompilasi yang bolong (GEN_FIX)
         run: |
