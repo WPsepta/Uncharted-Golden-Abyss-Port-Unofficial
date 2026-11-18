@@ -89,9 +89,10 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
         s_win[s_wi & 7u] = next_pc;
         s_wi = (s_wi + 1u) & 7u;
         if (s_wn < 8u) ++s_wn;
-        if (s_wn == 8u && old == next_pc) ++s_spin; else s_spin = 0u;
-        if (s_spin > 20000u && s_spin == s_reported + 1u) {
-            s_reported = s_spin;
+        if (s_wn == 8u && old == next_pc) ++s_spin;
+        else { s_spin = 0u; s_reported = 0u; }
+        if (s_spin > 20000u && s_reported == 0u) {
+            s_reported = 1u;  // one-shot: log sekali per episode spin
             char _sb[256];
             std::snprintf(_sb, sizeof(_sb),
                 "[SPIN_DETECT] pc=0x%08x cycle<=8 count=%llu r0=0x%08x r5=0x%08x r6=0x%08x r7=0x%08x lr=0x%08x",
