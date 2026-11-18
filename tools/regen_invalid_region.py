@@ -34,6 +34,7 @@ REGIONS = [
     (0x81386D9A, 0x81387592),    # 16 blok invalid setelah create-thread
     (0x8138974E, 0x81389768),    # jalur early-exit parser (r6=0)
     (0x81437918, 0x81437A04),    # cluster invalid 118 insn (fault 0x8143793a)
+    (0x81436630, 0x81436740),    # cluster invalid 136 insn (AUTO_TBH idx=0xb -> 0x81436648)
 ]
 REGION_START, REGION_END = REGIONS[0]
 PART_FILE = "recompiled_part998.cpp"

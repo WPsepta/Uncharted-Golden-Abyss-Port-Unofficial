@@ -371,6 +371,14 @@ FIXES = [
 #endif
     c.next_pc = kTbl[_idx]; return;""",
     ),
+    (
+        0x81436648,
+        1,
+        None,
+        """    // [GEN_FIX 0x81436648] target AUTO_TBH idx=9..30: `b 0x81436620`
+    // di tengah blk_81436646. Lompat langsung ke target cabang asli.
+    c.next_pc = 0x81436620u; return;""",
+    ),
 ]
 
 ARM_STUB_ADDRS = [
@@ -927,6 +935,8 @@ extern const size_t rc_blocks_part999_count;
 LOOKUP_BLOCK = """// [GEN_FIX_LOOKUP] Cari blok perbaikan manual lebih dulu. Tabel ini kecil
 // dan tidak berurutan, jadi dicari linear sebelum binary search part normal.
 const BlockDesc* rc_fix_find_block(uint32_t pc);
+extern const BlockDesc rc_blocks_part998[];
+extern const size_t rc_blocks_part998_count;
 
 """
 
@@ -1346,6 +1356,8 @@ void crt_thread_runner(uint8_t* mem, uint32_t mem_size, uint32_t entry, uint32_t
 
 // [TBH_NEAREST] Cari awal blok rekompilasi terdekat <= pc (untuk tbh/tbb).
 // Iterasi linear semua part (jarang dipanggil, hanya saat jump-table).
+extern const BlockDesc rc_blocks_part998[];
+extern const size_t rc_blocks_part998_count;
 extern "C" uint32_t rc_nearest_block(uint32_t pc) {
     uint32_t best = 0u;
     // binary search part terakhir yang alamat pertamanya <= pc
@@ -1362,6 +1374,16 @@ extern "C" uint32_t rc_nearest_block(uint32_t pc) {
         }
     }
     if (const BlockDesc* f = rc_fix_find_block(pc)) best = f->addr;
+    // [TBH_NEAREST998] target jump-table sering jatuh di TENGAH blok hasil
+    // regenerate (mis. 0x81436648 di dalam blk_81436646) atau di blok invalid
+    // part051 yang alamatnya persis sama. part998 tidak masuk rc_block_parts[],
+    // jadi override dengan blok regenerate terdekat (<= 0x10 byte di depan pc).
+    uint32_t near998 = 0u;
+    for (size_t i = 0; i < rc_blocks_part998_count; ++i) {
+        uint32_t a = rc_blocks_part998[i].addr;
+        if (a <= pc && (pc - a) <= 0x10u && a > near998) near998 = a;
+    }
+    if (near998) best = near998;
     return best;
 }
 
