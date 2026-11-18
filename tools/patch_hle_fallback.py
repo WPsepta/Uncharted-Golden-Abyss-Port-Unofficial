@@ -39,6 +39,7 @@ PROBE_MARK = "[ENTRY_PROBE]"
 BLOCK_MISS_MARK = "[BLOCK_MISS]"
 STEP_HIST_MARK = "[STEP_HIST]"
 NULL_INDIRECT_MARK = "[NULL_INDIRECT]"
+SPIN_DETECT_MARK = "[SPIN_DETECT]"
 
 BLOCK_MISS_OLD = """    if (!b) {
         RC_LOGE("no recompiled block at 0x%08x (from 0x%08x)", next_pc, current_pc);
@@ -79,7 +80,28 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
     ++rc_dbg_step_total;
     // Log berkala per step counter supaya bukti instruksi benar-benar dieksekusi
     // (membantu isolasi kenapa trace/hist kadang dibaca 0 di build sebelumnya).
-    if ((rc_dbg_step_total % 1000u) == 0u) {
+    // [SPIN_DETECT] cycle PC pendek (mask hash = 0, spin wait, dll) — log sekali.
+    {
+        static uint32_t s_win[8] = {0,0,0,0,0,0,0,0};
+        static uint32_t s_wi = 0u, s_wn = 0u;
+        static uint64_t s_spin = 0u, s_reported = 0u;
+        const uint32_t old = (s_wn == 8u) ? s_win[s_wi & 7u] : 0u;
+        s_win[s_wi & 7u] = next_pc;
+        s_wi = (s_wi + 1u) & 7u;
+        if (s_wn < 8u) ++s_wn;
+        if (s_wn == 8u && old == next_pc) ++s_spin; else s_spin = 0u;
+        if (s_spin > 20000u && s_spin == s_reported + 1u) {
+            s_reported = s_spin;
+            char _sb[256];
+            std::snprintf(_sb, sizeof(_sb),
+                "[SPIN_DETECT] pc=0x%08x cycle<=8 count=%llu r0=0x%08x r5=0x%08x r6=0x%08x r7=0x%08x lr=0x%08x",
+                next_pc, (unsigned long long)s_spin,
+                r[0], r[5], r[6], r[7], r[kRegLr]);
+            RC_LOGE("%s", _sb);
+            if (rc_dbg_log_hook) rc_dbg_log_hook("SPIN_DETECT", _sb);
+        }
+    }
+    if ((rc_dbg_step_total % 100000u) == 0u) {
         char _st[160];
         std::snprintf(_st, sizeof(_st), "[STEP_HIST] step pc=0x%08x next=0x%08x steps=%llu",
                       next_pc, next_pc, (unsigned long long)blocks_run);
@@ -515,7 +537,7 @@ def main(argv: list[str]) -> int:
     # Sanity check: semua penanda harus ada setelah patch.
     missing = [m for m in (GLOBALS_MARK, FAULT_MARK, UNIMPL_MARK, HLE_MARK,
                            LOADER_MARK, PROBE_MARK, BLOCK_MISS_MARK, STEP_HIST_MARK,
-                           NULL_INDIRECT_MARK)
+                           NULL_INDIRECT_MARK, SPIN_DETECT_MARK)
                if m not in text]
     if missing:
         print(f"error: penanda hilang setelah patch: {missing}", file=sys.stderr)
