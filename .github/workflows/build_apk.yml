@@ -135,6 +135,16 @@ jobs:
           grep -rq '\[SPIN_BREAK\]' app/src/main/cpp/gen/
           echo "OK: spin-loop 0x817b0cd4 diputus via sentinel slot kosong."
 
+      - name: Rewrite bkpt jadi no-op (BKPT_NOP)
+        run: |
+          set -euo pipefail
+          python3 tools/patch_bkpt.py app/src/main/cpp
+          if grep -rqE 'RC_UNIMPL\(0x[0-9a-f]+u, "bkpt' app/src/main/cpp/gen/; then
+            echo "::error::masih ada RC_UNIMPL bkpt setelah rewrite."
+            exit 1
+          fi
+          echo "OK: semua bkpt jadi no-op (lanjut ke instruksi berikutnya)."
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
