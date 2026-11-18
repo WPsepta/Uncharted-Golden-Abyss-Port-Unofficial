@@ -1393,6 +1393,12 @@ extern "C" uint32_t rc_nearest_block(uint32_t pc) {
 extern "C" int rc_crt_thread_create(Cpu& cpu, uint32_t name, uint32_t entry, uint32_t stack, uint32_t arg) {
     (void)name; (void)stack;
     std::lock_guard<std::mutex> lk(g_crt_thr_mtx);
+    // [THREAD_CAP] Guest melakukan binary-search ukuran stack: ia berulang kali
+    // membuat thread dengan stack makin besar dan MENGHARAPKAN gagal (r0<0)
+    // supaya loop konvergen. Stub kita selalu sukses -> loop tak henti (#125+),
+    // ratusan thread + log I/O memblokir main thread -> ANR. Batasi jumlah thread;
+    // setelah cap kembalikan -1 (SCE_FAIL) supaya guest berhenti membuat thread.
+    if (g_crt_thrs.size() >= 32u) return -1;
     CrtThread* t = new CrtThread();
     t->entry = entry; t->arg = arg;
     g_crt_thrs.push_back(t);
