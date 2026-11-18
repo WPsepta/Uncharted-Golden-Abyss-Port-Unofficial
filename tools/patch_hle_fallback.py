@@ -150,7 +150,11 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
         // slot vtable belum terisi oleh stub) menghasilkan next_pc==0. Jangan
         // halt: perlakukan sebagai stub return -1 ke LR seperti block-miss.
         // LR==0 berarti akhir thread yang sah -> tetap halt di bawah.
-        if (rc_dbg_stub_missing && r[kRegLr] != 0) {
+        // PENTING: trampoline (0x81f00000) sengaja halt dg lr=dirinya sendiri;
+        // itu BUKAN indirect-call gagal. Tanpa syarat ini, stub-return mengirim
+        // PC kembali ke trampoline -> loop TRAMPOLINE tak henti (ribuan log).
+        if (rc_dbg_stub_missing && r[kRegLr] != 0
+            && (r[kRegLr] & ~1u) != current_pc) {
             ++rc_dbg_null_indirect;
             if (rc_dbg_null_indirect <= 8u) {
                 char _nb[160];
