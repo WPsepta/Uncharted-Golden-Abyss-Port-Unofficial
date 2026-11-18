@@ -1363,7 +1363,10 @@ uint32_t g_memblk_heap_cur = 0x83000000u;  // di atas ELF/BSS (~0x81a...), di ba
 
 const uint32_t kMemBlockHeapBase = 0x83000000u;  // awal heap (sama dengan g_memblk_heap_cur)
 const uint32_t kMemBlockHeapEnd  = 0x8E000000u;  // 176 MiB ruang heap guest
-const uint32_t kMemBlockMaxAlloc = 0x08000000u;  // 128 MiB batas per-blok
+// [CAP] Log device: guest meminta size = r5 + 0x08000000 (128 MiB + offset),
+// jadi dengan batas 128 MiB semua request selalu gagal dan r5 naik terus.
+// Naikkan ke 256 MiB supaya rentang kerja guest (128 MiB + ~50 MiB) masuk.
+const uint32_t kMemBlockMaxAlloc = 0x10000000u;  // 256 MiB batas per-blok
 const int      kSceErrorNoMemory = (int)0x8001000Au;  // SCE_KERNEL_ERROR_NO_MEMORY
 const int      kSceErrorInvalid  = (int)0x80010016u;  // SCE_KERNEL_ERROR_INVALID_ARGUMENT
 }  // namespace

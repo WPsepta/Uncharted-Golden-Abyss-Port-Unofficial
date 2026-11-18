@@ -11,6 +11,7 @@ import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.view.View;
+import android.view.KeyEvent;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -150,6 +151,9 @@ public class MainActivity extends Activity {
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.setClickable(true);
+        // [NO_SELECT] Cegah tahan-lama memunculkan selection handle / copy popup.
+        webView.setLongClickable(false);
+        webView.setOnLongClickListener(v -> true);
         webView.addJavascriptInterface(new JavascriptBridge(nativeBridge), "NativeBridge");
         String htmlPath = "file:///android_asset/uncharted.html";
         webView.loadUrl(htmlPath);
@@ -186,6 +190,37 @@ public class MainActivity extends Activity {
                 }
             }
         }
+    }
+
+    /* [GAMEPAD] Teruskan tombol controller/keyboard ke menu WebView.
+       D-Pad atas/bawah = pindah pilihan (tombol kuning), A/DPAD_CENTER = jalankan,
+       B/BACK = tutup panel. Back sengaja diteruskan ke super agar navigation normal. */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && webView != null) {
+            String code = null;
+            switch (event.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_UP:
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                    code = "UP"; break;
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    code = "DOWN"; break;
+                case KeyEvent.KEYCODE_BUTTON_A:
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_ENTER:
+                    code = "A"; break;
+                case KeyEvent.KEYCODE_BUTTON_B:
+                    code = "B"; break;
+                default: break;
+            }
+            if (code != null) {
+                final String js = "window.gamepadKey && window.gamepadKey('" + code + "')";
+                webView.evaluateJavascript(js, null);
+                if (!"B".equals(code)) return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     // ------------------------------------------------------------------
@@ -503,7 +538,7 @@ public class MainActivity extends Activity {
         TextView tv = new TextView(this);
         tv.setText(text);
         tv.setTextSize(10);
-        tv.setTextIsSelectable(true);
+        tv.setTextIsSelectable(false); // [NO_SELECT] konsisten: tidak ada teks yang bisa disalin
         tv.setTypeface(android.graphics.Typeface.MONOSPACE);
         tv.setPadding(16, 12, 16, 12);
 

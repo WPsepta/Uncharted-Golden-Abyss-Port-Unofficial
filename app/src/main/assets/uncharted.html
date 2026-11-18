@@ -6,6 +6,19 @@
 <title>UNCHARTED: GOLDEN ABYSS</title>
 <style>
 *{box-sizing:border-box}
+/* [NO_SELECT] Matikan seleksi teks WebView: klik tombol tidak boleh memunculkan
+   highlight biru, dan tahan lama tidak boleh membuat teks bisa disalin. */
+html,body,button,div,span,p,strong,small,h1,h2,h3,li,td,th,textarea,input{
+ -webkit-user-select:none !important;
+ -moz-user-select:none !important;
+ -ms-user-select:none !important;
+ user-select:none !important;
+ -webkit-touch-callout:none !important;
+ -webkit-tap-highlight-color:transparent !important;
+ outline:none !important;
+}
+button{-webkit-appearance:none;appearance:none;outline:none !important}
+button:focus,button:focus-visible{outline:none !important}
 :root{--gold:#e9a51e;--gold-light:#ffdc79;--white:#f7f5ef}
 html,body{margin:0;width:100%;height:100%;background:#080b09;color:var(--white);font-family:Roboto,"Segoe UI",Arial,sans-serif;overflow:hidden;}
 body{display:grid;place-items:center}
@@ -312,6 +325,36 @@ const toastBox=document.getElementById("toast");let timer;
 let folderSelected = false;
 function notify(text){toastBox.textContent=text;toastBox.classList.add("show");clearTimeout(timer);timer=setTimeout(()=>toastBox.classList.remove("show"),2400)}
 function selectButton(button){buttons.forEach(b=>b.classList.toggle("selected",b===button))}
+
+/* [NO_SELECT] Blokir seleksi teks & menu konteks WebView (highlight biru + salin teks). */
+document.addEventListener("selectstart",e=>e.preventDefault(),true);
+document.addEventListener("contextmenu",e=>e.preventDefault(),true);
+document.addEventListener("dragstart",e=>e.preventDefault(),true);
+
+/* [GAMEPAD] Navigasi menu pakai controller. Tombol kuning = item yang dipilih.
+   D-Pad / stik kiri atas-bawah = pindah pilihan, A / DPAD_CENTER = jalankan,
+   B / BACK = tutup panel. Dipanggil dari MainActivity.dispatchKeyEvent(). */
+let selectedIndex = Math.max(0,buttons.findIndex(b=>b.classList.contains("selected")));
+function moveSelection(delta){
+ if(!buttons.length) return;
+ selectedIndex=(selectedIndex+delta+buttons.length)%buttons.length;
+ selectButton(buttons[selectedIndex]);
+ const lbl=buttons[selectedIndex].querySelector(".label");
+ notify("Pilih: "+(lbl?lbl.textContent.trim():buttons[selectedIndex].getAttribute("aria-label")||"Menu"));
+}
+function activateSelected(){
+ const b=buttons[selectedIndex]||buttons[0];
+ if(b) b.click();
+}
+window.gamepadKey=function(code){
+ if(code==="UP"||code==="LEFT") moveSelection(-1);
+ else if(code==="DOWN"||code==="RIGHT") moveSelection(1);
+ else if(code==="A"||code==="ENTER") activateSelected();
+ else if(code==="B"){
+  if(settingsScreen.classList.contains("open")) closeSettings();
+  else if(aboutScreen.classList.contains("open")) closeAbout();
+ }
+};
 
 // Native Bridge helper
 function bridge(method,args=[]){
