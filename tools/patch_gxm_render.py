@@ -35,6 +35,7 @@ struct State {
     bool tried = false, ready = false;
     std::string path;
     int w = 0, h = 0;
+    int best_score = -1;
 };
 static State st;
 
@@ -93,11 +94,12 @@ static bool decode_btex(const std::string& p, std::vector<uint8_t>& out,
             }
             if (src + 4 > d.size()) continue;
             const size_t dst = ((size_t)y * (size_t)w + (size_t)x) * 4u;
-            // GXT ARGB8888: byte order di memori [R,G,B,A] -> RGBA直接
-            out[dst + 0] = d[src + 0];
-            out[dst + 1] = d[src + 1];
-            out[dst + 2] = d[src + 2];
-            out[dst + 3] = d[src + 3];
+            // GXT ARGB8888 (fmt 0x0c): layout memori [A,R,G,B] (big-endian word
+            // 0xAARRGGBB). Tukar ke RGBA untuk glTexImage2D.
+            out[dst + 0] = d[src + 1];  // R
+            out[dst + 1] = d[src + 2];  // G
+            out[dst + 2] = d[src + 3];  // B
+            out[dst + 3] = d[src + 0];  // A
         }
     }
     ow = w; oh = h;
@@ -150,6 +152,9 @@ static void draw() {
         if (!st.ready) return;
     } else {
         st.tried = true;
+        logf("GXM_RENDER", "draw() first call: candidates=%d best_score=%d path='%s'",
+             st.best_score >= 0 ? 1 : 0, st.best_score,
+             st.path.empty() ? "(none)" : st.path.c_str());
         if (st.path.empty()) {
             logf("GXM_RENDER", "tidak ada .bstex ARGB8888 untuk ditampilkan");
             return;
@@ -164,8 +169,9 @@ static void draw() {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, st.w, st.h, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, px.data());
         st.ready = true;
-        logf("GXM_RENDER", "tampilkan tekstur asli %dx%d: %s",
-             st.w, st.h, st.path.c_str());
+        logf("GXM_RENDER", "tampilkan tekstur asli %dx%d: %s (px0=%02x %02x %02x %02x)",
+             st.w, st.h, st.path.c_str(),
+             px[0], px[1], px[2], px[3]);
     }
     glUseProgram(st.prog);
     glBindBuffer(GL_ARRAY_BUFFER, st.vbo);
@@ -210,18 +216,25 @@ def main(argv: list[str]) -> int:
     capture = (
         ANCHOR_SCAN + "\n"
         "            {\n"
-        "                if (gxmview::st.path.empty() && ext == \".bstex\") {\n"
+        "                if (ext == \".bstex\") {\n"
         "                    FILE* fb = fopen(path_cstr, \"rb\");\n"
         "                    if (fb) {\n"
-        "                        unsigned char hd[0x60];\n"
+        "                        unsigned char hd[0x80];\n"
         "                        size_t nr = fread(hd, 1, sizeof(hd), fb); fclose(fb);\n"
         "                        if (nr >= 0x60 && hd[0x20]=='G' && hd[0x21]=='X' && hd[0x22]=='T') {\n"
         "                            uint32_t io = (uint32_t)hd[0x2c] | ((uint32_t)hd[0x2d]<<8) |\n"
         "                                          ((uint32_t)hd[0x2e]<<16) | ((uint32_t)hd[0x2f]<<24);\n"
-        "                            if (io + 0x20 <= nr) {\n"
+        "                            if (io + 0x20 <= nr && io + 0x28 <= nr) {\n"
         "                                uint32_t fm = (uint32_t)hd[io+0x14] | ((uint32_t)hd[io+0x15]<<8) |\n"
         "                                              ((uint32_t)hd[io+0x16]<<16) | ((uint32_t)hd[io+0x17]<<24);\n"
-        "                                if (fm == 0x0c000000u) gxmview::st.path = path_cstr;\n"
+        "                                if (fm == 0x0c000000u) {\n"
+        "                                    // Skor = alpha byte pertama (0..255). Pilih yang paling opak.\n"
+        "                                    int sc = hd[io+0x20];\n"
+        "                                    if (sc > gxmview::st.best_score) {\n"
+        "                                        gxmview::st.best_score = sc;\n"
+        "                                        gxmview::st.path = path_cstr;\n"
+        "                                    }\n"
+        "                                }\n"
         "                            }\n"
         "                        }\n"
         "                    }\n"
