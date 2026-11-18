@@ -155,12 +155,15 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
             if (rc_dbg_null_indirect <= 8u) {
                 char _nb[160];
                 std::snprintf(_nb, sizeof(_nb),
-                    "[NULL_INDIRECT] pc=0x%08x lr=0x%08x -> stub return #%llu",
+                    "[NULL_INDIRECT] pc=0x%08x lr=0x%08x -> return 0 (#%llu)",
                     current_pc, r[kRegLr], (unsigned long long)rc_dbg_null_indirect);
                 RC_LOGE("%s", _nb);
                 if (rc_dbg_log_hook) rc_dbg_log_hook("NULL_INDIRECT", _nb);
             }
-            r[0] = 0xFFFFFFFFu;
+            // Hanya r0 (return value), next_pc, thumb & cpsr yang diubah.
+            // r1..r12, sp dan lr sengaja dibiarkan utuh agar caller tidak
+            // melihat register korup setelah panggilan vtable yang kosong.
+            r[0] = 0u;
             next_pc = r[kRegLr] & ~1u;
             thumb = r[kRegLr] & 1u;
             cpsr = (cpsr & ~kFlagT) | (thumb ? kFlagT : 0);

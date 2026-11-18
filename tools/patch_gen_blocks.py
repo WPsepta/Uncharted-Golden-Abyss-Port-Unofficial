@@ -755,8 +755,9 @@ for _a in _ALL_STUB_ADDRS:
         )
     elif _a in _CRT_THREAD_START:
         _stub_body = (
-            f"    // [GEN_FIX {_a:08x}] CRT start-thread: jalankan entry di std::thread\n"
-            f"    rc_crt_thread_start(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
+            f"    // [GEN_FIX {_a:08x}] CRT start-thread: uid/return-value ada di r0\n"
+            f"    // (r1 = pointer arg, BUKAN slot). Kirim r0 sbg uid & slot.\n"
+            f"    rc_crt_thread_start(c, c.r[0], c.r[0], c.r[2], c.r[3]);\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     elif _a in STUB_NID_MAP:
