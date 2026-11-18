@@ -636,12 +636,19 @@ _CRT_MEMCPY_STUBS = {0x81815464, 0x81815494, 0x818156d4}
 # yang TIDAK bisa diterjemahkan translator (RC_UNIMPL) -> fault. Return -1
 # membuat guest ambil jalur 0x81386d60 yang valid & sudah diperbaiki
 # (parser 0x81389498 kini dapat SCE_OK dari 0x81815364 -> r6 tidak garbage).
-_CRT_NEG_STUBS = set()  # 0x81815ca4 kini SCE_OK(0): blok 0x81386d9a sudah diregenerate
-# [THREAD_HLE] Stub CRT internal thread: 0x81815ca4 = create-thread(name r0, entry r1,
-# stack r2, arg r3), 0x81815c94 = start-thread(r1=thread slot). Kita simpan entry
-# dan jalankan di std::thread nyata (bukan cuma return 0).
-_CRT_THREAD_CREATE = {0x81815ca4}
-_CRT_THREAD_START  = {0x81815c94}
+_CRT_NEG_STUBS = set()  # tidak dipakai: 0x81815ca4 kini ditangani sceKernelAllocMemBlock HLE
+# [SYSMEM_HLE] Koreksi identitas stub (divalidasi dari NID import table ELF +
+# vitasdk db/360/SceSysmem.yml + call-site ABI + nama block guest):
+#   0x81815ca4 = NID 0xB9D5EBDE sceKernelAllocMemBlock(name, memType, size, opt)
+#   0x81815c94 = NID 0xB8EF5818 sceKernelGetMemBlockBase(uid, void** base)
+#   0x81815c84 = NID 0xA91E15EE sceKernelFreeMemBlock(uid)
+# 0x0c20d060 / 0x0c208060 yang tadinya disangka "entry thread" adalah konstanta
+# SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_RW / _NC_RW. Guest melakukan binary-search
+# ukuran blok: alloc ukuran naik dan MENGHARAPKAN gagal (uid<0) agar konvergen.
+# Stub lama selalu sukses -> loop tak henti + ratusan std::thread -> ANR.
+_CRT_MEM_ALLOC   = {0x81815ca4}
+_CRT_MEM_GETBASE = {0x81815c94}
+_CRT_MEM_FREE    = {0x81815c84}
 # [CRT_ZEROFILL] 0x81815364 dipanggil parser 0x81389498 dengan r0=sp (output
 # struct). Stub no-op membiarkan [sp+0x118] berisi PC -> r6=0x81970ea4 (alamat
 # BSS) -> loop 0x8138979e mengira itu count 2 miliar -> forced exit 100 ->
@@ -755,20 +762,25 @@ for _a in _ALL_STUB_ADDRS:
             "    c.r[0] = 0xFFFFFFFFu;\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
-    elif _a in _CRT_THREAD_CREATE:
+    elif _a in _CRT_MEM_ALLOC:
         _stub_body = (
-            f"    // [GEN_FIX {_a:08x}] CRT create-thread: simpan entry r1, arg r3\n"
-            f"    // Return value (uid >= 0) WAJIB di r0: caller `cmp r0,0; bge`\n"
-            f"    // menentukan success vs jalur bkpt/retry. Sebelumnya r0 dibiarkan\n"
-            f"    // berisi pointer nama (negatif signed) -> loop create-thread tanpa henti.\n"
-            f"    c.r[0] = (uint32_t)rc_crt_thread_create(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
+            f"    // [GEN_FIX {_a:08x}] sceKernelAllocMemBlock(name r0, type r1, size r2, opt r3)\n"
+            f"    // -> r0 = SceUID (>0 sukses, <0 error). Batas ukuran nyata membuat\n"
+            f"    // binary-search guest konvergen (dulu selalu sukses -> ANR).\n"
+            f"    c.r[0] = (uint32_t)rc_mem_alloc(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
-    elif _a in _CRT_THREAD_START:
+    elif _a in _CRT_MEM_GETBASE:
         _stub_body = (
-            f"    // [GEN_FIX {_a:08x}] CRT start-thread: uid/return-value ada di r0\n"
-            f"    // (r1 = pointer arg, BUKAN slot). Kirim r0 sbg uid & slot.\n"
-            f"    rc_crt_thread_start(c, c.r[0], c.r[0], c.r[2], c.r[3]);\n"
+            f"    // [GEN_FIX {_a:08x}] sceKernelGetMemBlockBase(uid r0, void** base r1)\n"
+            f"    // -> r0 = 0 sukses, tulis base ke [r1].\n"
+            f"    c.r[0] = (uint32_t)rc_mem_getbase(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
+            "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
+        )
+    elif _a in _CRT_MEM_FREE:
+        _stub_body = (
+            f"    // [GEN_FIX {_a:08x}] sceKernelFreeMemBlock(uid r0) -> r0 = 0 sukses\n"
+            f"    c.r[0] = (uint32_t)rc_mem_free(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     elif _a in STUB_NID_MAP:
@@ -1043,8 +1055,9 @@ def emit_fix_file(fixes) -> str:
         "    extern uint32_t rc_dbg_last_nid;",
         "    extern uint64_t rc_dbg_stub_returns;",
         "    extern uint32_t rc_nearest_block(uint32_t);",
-        "    extern int rc_crt_thread_create(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
-        "    extern int rc_crt_thread_start(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
+        "    extern int rc_mem_alloc(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
+        "    extern int rc_mem_getbase(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
+        "    extern int rc_mem_free(rc::Cpu&, uint32_t, uint32_t, uint32_t, uint32_t);",
         "    extern uint32_t rc_dbg_stub_caller_81815464;",
         "    extern uint32_t rc_dbg_stub_caller_81815494;",
         "}",
@@ -1320,41 +1333,38 @@ int rc_hle_threadmgr_start_thread(Cpu& cpu, uint32_t uid, uint32_t arg) {
 }
 
 // ---------------------------------------------------------------------------
-// rc_crt_thread_* : CRT-internal thread stubs dipanggil guest saat init.
-// create(r0=name, r1=entry, r2=stack, r3=arg) -> simpan entry per slot.
-// start (r1=slot ptr) -> jalankan entry di std::thread nyata. Jika entry di luar
-// guest window (pointer ke struktur heap yang belum ada), pakai game-loop
-// 0x813833cc sebagai fallback supaya thread tetap hidup & GXM bisa dipanggil.
+// [SYSMEM_HLE] HLE untuk sceKernelAllocMemBlock / GetMemBlockBase / FreeMemBlock.
+//
+// Tiga stub di region 0x81815c8x/c9x/cax adalah import SceSysmem (NID:
+// 0xA91E15EE / 0xB8EF5818 / 0xB9D5EBDE). Argumen guest sesuai ABI ARM:
+//   alloc(name=r0, memType=r1, size=r2, opt=r3) -> SceUID di r0
+//   getbase(uid=r0, void** base=r1) -> 0 sukses, menulis *base
+//   free(uid=r0) -> 0 sukses
+//
+// Guest memakai binary-search untuk mencari ukuran blok terbesar yang bisa
+// dialokasikan (lihat 0x81386aae: `lsls r2,r5,#0x14` = size = r5<<20, lalu
+// `cmp r0,0; bge` menentukan cabang sukses/gagal). Karena stub lama SELALU
+// mengembalikan UID positif, loop tidak pernah konvergen dan menghasilkan
+// ratusan alloc + log I/O -> ANR. Kita terapkan batas ukuran per-blok yang
+// realistis untuk ruang alamat guest 256 MiB, plus heap bump dengan reuse
+// blok yang sudah di-free, supaya binary-search konvergen dan guest lanjut.
 // ---------------------------------------------------------------------------
 namespace {
-struct CrtThread { uint32_t entry, arg; std::thread th; std::atomic<bool> started{false}; };
-std::mutex g_crt_thr_mtx;
-std::vector<CrtThread*> g_crt_thrs;
-uint32_t g_crt_thr_seq = 0;
+struct GuestMemBlock {
+    uint32_t uid = 0;
+    uint32_t base = 0;
+    uint32_t size = 0;
+    bool used = true;
+};
+std::mutex g_memblk_mutex;
+std::vector<GuestMemBlock> g_memblks;
+uint32_t g_memblk_next_uid = 0x1000u;
+uint32_t g_memblk_heap_cur = 0x83000000u;  // di atas ELF/BSS (~0x81a...), di bawah stack 0x8f000000
 
-void crt_thread_runner(uint8_t* mem, uint32_t mem_size, uint32_t entry, uint32_t arg, uint32_t idx) {
-    Cpu c;
-    c.mem = mem; c.mem_size = mem_size; c.reset();
-    c.r[0] = arg; c.r[1] = idx;
-    c.r[13] = kStackTop - (idx + 2u) * 0x20000u;
-    c.r[14] = 0x81F00000u;  // trampoline: halt bersih
-    c.next_pc = entry & ~1u; c.current_pc = entry & ~1u;
-    c.thumb = entry & 1u;
-    c.cpsr = (c.cpsr & ~kFlagT) | (c.thumb ? kFlagT : 0u);
-    c.running = true; c.faulted = false; c.max_blocks = 0;
-    // jalan dalam chunk kecil sambil s->running dicek lewat flag global.
-    for (int chunk = 0; chunk < 100000 && c.running && !c.faulted && g_guest_mem_alive.load(); ++chunk) {
-        c.max_blocks = c.blocks_run + 20000u;
-        c.run();
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    if (rc_dbg_log_hook) {
-        char m[200];
-        std::snprintf(m, sizeof(m), "CRT thread #%u selesai: entry=0x%08x blocks=%llu faulted=%d",
-                      idx, entry, (unsigned long long)c.blocks_run, (int)c.faulted);
-        rc_dbg_log_hook("HLE_THREAD", m);
-    }
-}
+const uint32_t kMemBlockHeapEnd  = 0x8E000000u;  // 176 MiB ruang heap guest
+const uint32_t kMemBlockMaxAlloc = 0x08000000u;  // 128 MiB batas per-blok
+const int      kSceErrorNoMemory = (int)0x8001000Au;  // SCE_KERNEL_ERROR_NO_MEMORY
+const int      kSceErrorInvalid  = (int)0x80010016u;  // SCE_KERNEL_ERROR_INVALID_ARGUMENT
 }  // namespace
 
 // [TBH_NEAREST] Cari awal blok rekompilasi terdekat <= pc (untuk tbh/tbb).
@@ -1390,59 +1400,76 @@ extern "C" uint32_t rc_nearest_block(uint32_t pc) {
     return best;
 }
 
-extern "C" int rc_crt_thread_create(Cpu& cpu, uint32_t name, uint32_t entry, uint32_t stack, uint32_t arg) {
-    (void)name; (void)stack;
-    std::lock_guard<std::mutex> lk(g_crt_thr_mtx);
-    // [THREAD_CAP] Guest melakukan binary-search ukuran stack: ia berulang kali
-    // membuat thread dengan stack makin besar dan MENGHARAPKAN gagal (r0<0)
-    // supaya loop konvergen. Stub kita selalu sukses -> loop tak henti (#125+),
-    // ratusan thread + log I/O memblokir main thread -> ANR. Batasi jumlah thread;
-    // setelah cap kembalikan -1 (SCE_FAIL) supaya guest berhenti membuat thread.
-    if (g_crt_thrs.size() >= 32u) return -1;
-    CrtThread* t = new CrtThread();
-    t->entry = entry; t->arg = arg;
-    g_crt_thrs.push_back(t);
-    uint32_t idx = g_crt_thr_seq++;
-    if (rc_dbg_log_hook) {
+extern "C" int rc_mem_alloc(Cpu& c, uint32_t name, uint32_t memtype, uint32_t size, uint32_t opt) {
+    (void)opt;
+    std::lock_guard<std::mutex> lk(g_memblk_mutex);
+    // Tolak ukuran 0 / di atas batas: inilah yang bikin binary-search konvergen.
+    if (size == 0u || size > kMemBlockMaxAlloc) {
+#if defined(__ANDROID__)
+        { static uint32_t _ma_n = 0; ++_ma_n;
+          if (_ma_n <= 4u || (_ma_n % 200u) == 0u) {
+            char m[220];
+            std::snprintf(m, sizeof(m),
+              "MEM_ALLOC: FAIL name=0x%08x type=0x%08x size=0x%x (>cap 0x%x) [#%u]",
+              name, memtype, size, kMemBlockMaxAlloc, _ma_n);
+            __android_log_print(ANDROID_LOG_WARN, "SYSMEM", "%s", m);
+            if (rc_dbg_log_hook) rc_dbg_log_hook("SYSMEM", m);
+          }
+        }
+#endif
+        return kSceErrorNoMemory;
+    }
+    uint32_t aligned = (size + 0xFFFu) & ~0xFFFu;
+
+    // Pakai ulang slot yang sudah di-free (binary-search sering alloc/free berulang).
+    for (auto& b : g_memblks) {
+        if (!b.used && b.size >= size) {
+            b.used = true; b.size = size;
+            return static_cast<int>(b.uid);
+        }
+    }
+    if (g_memblk_heap_cur + aligned > kMemBlockHeapEnd) return kSceErrorNoMemory;
+
+    uint32_t uid = g_memblk_next_uid++;
+    uint32_t base = g_memblk_heap_cur;
+    g_memblk_heap_cur += aligned;
+    GuestMemBlock b;
+    b.uid = uid; b.base = base; b.size = size; b.used = true;
+    g_memblks.push_back(b);
+#if defined(__ANDROID__)
+    { static uint32_t _ma_ok = 0; ++_ma_ok;
+      if (_ma_ok <= 6u || (_ma_ok % 200u) == 0u) {
         char m[220];
         std::snprintf(m, sizeof(m),
-            "CRT create-thread #%u: entry=0x%08x arg=0x%08x stack=0x%x -> slot=%u",
-            idx, entry, arg, stack, idx);
-        rc_dbg_log_hook("HLE_THREAD", m);
+          "MEM_ALLOC: OK uid=0x%x base=0x%08x size=0x%x type=0x%08x [#%u]",
+          uid, base, size, memtype, _ma_ok);
+        __android_log_print(ANDROID_LOG_WARN, "SYSMEM", "%s", m);
+        if (rc_dbg_log_hook) rc_dbg_log_hook("SYSMEM", m);
+      }
     }
-    return static_cast<int>(idx);
+#endif
+    return static_cast<int>(uid);
 }
 
-extern "C" int rc_crt_thread_start(Cpu& cpu, uint32_t r0, uint32_t slot, uint32_t r2, uint32_t r3) {
-    (void)r0; (void)r2; (void)r3;
-    std::lock_guard<std::mutex> lk(g_crt_thr_mtx);
-    if (slot >= g_crt_thrs.size()) return -1;
-    CrtThread* t = g_crt_thrs[slot];
-    if (t->started.exchange(true)) return 0;
-    uint32_t entry = t->entry;
-    // Validasi entry: harus di guest window & punya blok rekompilasi.
-    if (entry < kMemBase || entry >= kMemBase + kMemSize || !find_block(entry & ~1u)) {
-        if (rc_dbg_log_hook) {
-            char m[240];
-            std::snprintf(m, sizeof(m),
-                "CRT start-thread #%u: entry 0x%08x TIDAK valid -> fallback game-loop 0x813833cc",
-                slot, entry);
-            rc_dbg_log_hook("HLE_THREAD", m);
+extern "C" int rc_mem_getbase(Cpu& c, uint32_t uid, uint32_t outptr, uint32_t r2, uint32_t r3) {
+    (void)r2; (void)r3;
+    std::lock_guard<std::mutex> lk(g_memblk_mutex);
+    for (const auto& b : g_memblks) {
+        if (b.uid == uid && b.used) {
+            if (outptr && c.in_range(outptr, 4u)) c.write32(outptr, b.base);
+            return 0;
         }
-        entry = 0x813833ccu;
     }
-    uint8_t* mem = cpu.mem; uint32_t mem_size = cpu.mem_size;
-    uint32_t arg = t->arg;
-    t->th = std::thread(crt_thread_runner, mem, mem_size, entry, arg, slot);
-    t->th.detach();
-    if (rc_dbg_log_hook) {
-        char m[240];
-        std::snprintf(m, sizeof(m),
-            "CRT start-thread #%u: std::thread spawned entry=0x%08x arg=0x%08x",
-            slot, entry, arg);
-        rc_dbg_log_hook("HLE_THREAD", m);
+    return kSceErrorInvalid;
+}
+
+extern "C" int rc_mem_free(Cpu& c, uint32_t uid, uint32_t r1, uint32_t r2, uint32_t r3) {
+    (void)c; (void)r1; (void)r2; (void)r3;
+    std::lock_guard<std::mutex> lk(g_memblk_mutex);
+    for (auto& b : g_memblks) {
+        if (b.uid == uid && b.used) { b.used = false; return 0; }
     }
-    return 0;
+    return kSceErrorInvalid;
 }
 
 int rc_hle_dispatcher(Cpu& cpu, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) {
@@ -1471,9 +1498,6 @@ void rc_unimplemented(uint32_t pc, const char* what) {'''
 }"""
     shutdown_new = """void rc_shutdown(Cpu& cpu) {
     g_guest_mem_alive.store(false);  // [GUEST_MEM_ALIVE] stop guest threads
-    for (int _w = 0; _w < 200 && g_crt_thrs.size(); ++_w) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
     if (cpu.mem) {
         munmap(cpu.mem, cpu.mem_size);
         cpu.mem = nullptr;
