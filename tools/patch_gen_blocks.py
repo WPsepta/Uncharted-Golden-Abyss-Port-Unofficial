@@ -1361,6 +1361,7 @@ std::vector<GuestMemBlock> g_memblks;
 uint32_t g_memblk_next_uid = 0x1000u;
 uint32_t g_memblk_heap_cur = 0x83000000u;  // di atas ELF/BSS (~0x81a...), di bawah stack 0x8f000000
 
+const uint32_t kMemBlockHeapBase = 0x83000000u;  // awal heap (sama dengan g_memblk_heap_cur)
 const uint32_t kMemBlockHeapEnd  = 0x8E000000u;  // 176 MiB ruang heap guest
 const uint32_t kMemBlockMaxAlloc = 0x08000000u;  // 128 MiB batas per-blok
 const int      kSceErrorNoMemory = (int)0x8001000Au;  // SCE_KERNEL_ERROR_NO_MEMORY
@@ -1421,14 +1422,44 @@ extern "C" int rc_mem_alloc(Cpu& c, uint32_t name, uint32_t memtype, uint32_t si
     }
     uint32_t aligned = (size + 0xFFFu) & ~0xFFFu;
 
-    // Pakai ulang slot yang sudah di-free (binary-search sering alloc/free berulang).
+    // 1) Reuse slot yang sudah di-free (binary-search sering alloc/free berulang).
     for (auto& b : g_memblks) {
         if (!b.used && b.size >= size) {
             b.used = true; b.size = size;
             return static_cast<int>(b.uid);
         }
     }
-    if (g_memblk_heap_cur + aligned > kMemBlockHeapEnd) return kSceErrorNoMemory;
+
+    // 2) HEAP CYCLIC: jangan pernah gagal karena heap penuh. Log lama memperlihatkan
+    //    r4=0x8001000a (NO_MEMORY kita) TANPA baris "FAIL" — artinya jalur diam ini
+    //    yang dipakai dan bikin guest loop menaikkan r5 selamanya. Guest hanya butuh
+    //    UID + base (memori tidak benar-benar di-backing), jadi base boleh di-reuse.
+    if (g_memblk_heap_cur + aligned > kMemBlockHeapEnd) {
+#if defined(__ANDROID__)
+        { static uint32_t _mw_n = 0; ++_mw_n;
+          if (_mw_n <= 6u || (_mw_n % 200u) == 0u) {
+            char m[220];
+            std::snprintf(m, sizeof(m),
+              "MEM_ALLOC: WRAP size=0x%x used=%zu cur=0x%08x [#%u]",
+              size, g_memblks.size(), g_memblk_heap_cur, _mw_n);
+            __android_log_print(ANDROID_LOG_WARN, "SYSMEM", "%s", m);
+            if (rc_dbg_log_hook) rc_dbg_log_hook("SYSMEM", m);
+          }
+        }
+#endif
+        // 2a) slot free berapa pun ukurannya
+        for (auto& b : g_memblks) {
+            if (!b.used) { b.used = true; b.size = size; return static_cast<int>(b.uid); }
+        }
+        // 2b) semua slot dipakai -> eviksi slot tertua (UID tetap unik).
+        if (!g_memblks.empty()) {
+            static size_t g_memblk_evict = 0;
+            GuestMemBlock& b = g_memblks[g_memblk_evict++ % g_memblks.size()];
+            b.used = true; b.size = size;
+            return static_cast<int>(b.uid);
+        }
+        g_memblk_heap_cur = kMemBlockHeapBase;
+    }
 
     uint32_t uid = g_memblk_next_uid++;
     uint32_t base = g_memblk_heap_cur;
@@ -1438,7 +1469,7 @@ extern "C" int rc_mem_alloc(Cpu& c, uint32_t name, uint32_t memtype, uint32_t si
     g_memblks.push_back(b);
 #if defined(__ANDROID__)
     { static uint32_t _ma_ok = 0; ++_ma_ok;
-      if (_ma_ok <= 6u || (_ma_ok % 200u) == 0u) {
+      if (_ma_ok <= 20u || (_ma_ok % 200u) == 0u) {
         char m[220];
         std::snprintf(m, sizeof(m),
           "MEM_ALLOC: OK uid=0x%x base=0x%08x size=0x%x type=0x%08x [#%u]",
@@ -1460,6 +1491,18 @@ extern "C" int rc_mem_getbase(Cpu& c, uint32_t uid, uint32_t outptr, uint32_t r2
             return 0;
         }
     }
+#if defined(__ANDROID__)
+    { static uint32_t _gb_n = 0; ++_gb_n;
+      if (_gb_n <= 6u || (_gb_n % 200u) == 0u) {
+        char m[180];
+        std::snprintf(m, sizeof(m),
+          "MEM_GETBASE: FAIL uid=0x%x out=0x%x slots=%zu [#%u]",
+          uid, outptr, g_memblks.size(), _gb_n);
+        __android_log_print(ANDROID_LOG_WARN, "SYSMEM", "%s", m);
+        if (rc_dbg_log_hook) rc_dbg_log_hook("SYSMEM", m);
+      }
+    }
+#endif
     return kSceErrorInvalid;
 }
 
