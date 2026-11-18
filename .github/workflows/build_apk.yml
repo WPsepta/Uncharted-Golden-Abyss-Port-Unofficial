@@ -152,7 +152,7 @@ jobs:
           grep -q '\[GXM_RENDER\]' app/src/main/cpp/android_main.cpp
           echo "OK: decoder btex + shader + VBO + glDrawArrays dipatch."
 
-      - name: Anti-ANR: scan aset di worker thread (SCAN_ASYNC)
+      - name: "Anti-ANR: scan aset di worker thread (SCAN_ASYNC)"
         run: |
           set -euo pipefail
           python3 tools/patch_scan_async.py app/src/main/cpp
