@@ -758,7 +758,10 @@ for _a in _ALL_STUB_ADDRS:
     elif _a in _CRT_THREAD_CREATE:
         _stub_body = (
             f"    // [GEN_FIX {_a:08x}] CRT create-thread: simpan entry r1, arg r3\n"
-            f"    rc_crt_thread_create(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
+            f"    // Return value (uid >= 0) WAJIB di r0: caller `cmp r0,0; bge`\n"
+            f"    // menentukan success vs jalur bkpt/retry. Sebelumnya r0 dibiarkan\n"
+            f"    // berisi pointer nama (negatif signed) -> loop create-thread tanpa henti.\n"
+            f"    c.r[0] = (uint32_t)rc_crt_thread_create(c, c.r[0], c.r[1], c.r[2], c.r[3]);\n"
             "    { uint32_t t = c.r[14] & ~1u; c.next_pc = t; return; }"
         )
     elif _a in _CRT_THREAD_START:
