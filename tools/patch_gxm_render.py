@@ -36,6 +36,9 @@ struct State {
     std::string path;
     int w = 0, h = 0;
     int best_score = -1;
+    // [GXM_RENDER] Jangan fopen 3524 file di main thread saat scan (-> ANR).
+    // Simpan semua path .bstex (murah), decode nanti sekali di draw().
+    std::vector<std::string> paths;
 };
 static State st;
 
@@ -152,16 +155,36 @@ static void draw() {
         if (!st.ready) return;
     } else {
         st.tried = true;
-        logf("GXM_RENDER", "draw() first call: candidates=%d best_score=%d path='%s'",
-             st.best_score >= 0 ? 1 : 0, st.best_score,
-             st.path.empty() ? "(none)" : st.path.c_str());
-        if (st.path.empty()) {
-            logf("GXM_RENDER", "tidak ada .bstex ARGB8888 untuk ditampilkan");
+        logf("GXM_RENDER", "draw() first call: paths=%zu", st.paths.size());
+        if (st.paths.empty()) {
+            logf("GXM_RENDER", "tidak ada .bstex untuk ditampilkan");
             return;
         }
+        // Coba beberapa path sampai ketemu tekstur opak & berwarna. Decode
+        // dilakukan di sini (sekali), BUKAN di scan (hindari ANR).
         std::vector<uint8_t> px;
-        if (!decode_btex(st.path, px, st.w, st.h)) {
-            logf("GXM_RENDER", "decode gagal: %s", st.path.c_str());
+        bool found = false;
+        const size_t lim = st.paths.size() < 400u ? st.paths.size() : 400u;
+        for (size_t i = 0; i < lim && !found; ++i) {
+            if (!decode_btex(st.paths[i], px, st.w, st.h)) continue;
+            // Skor: alpha & jumlah channel berwarna pada sample 64 px.
+            int opaque = 0, colored = 0;
+            const size_t n = px.size() / 4u < 64u ? px.size() / 4u : 64u;
+            for (size_t k = 0; k < n; ++k) {
+                const uint8_t a = px[k*4+3];
+                if (a > 128) opaque++;
+                if (px[k*4+0] > 16 || px[k*4+1] > 16 || px[k*4+2] > 16) colored++;
+            }
+            if (opaque > (int)(n/2u) && colored > 0) {
+                st.path = st.paths[i];
+                found = true;
+                logf("GXM_RENDER", "pilih %dx%d score=%d/%d: %s",
+                     st.w, st.h, opaque, colored, st.path.c_str());
+            }
+        }
+        if (!found) {
+            logf("GXM_RENDER", "tidak ada tekstur opak/berwarna dari %zu kandidat",
+                 lim);
             return;
         }
         if (!init_gl()) return;
@@ -216,29 +239,9 @@ def main(argv: list[str]) -> int:
     capture = (
         ANCHOR_SCAN + "\n"
         "            {\n"
-        "                if (ext == \".bstex\") {\n"
-        "                    FILE* fb = fopen(path_cstr, \"rb\");\n"
-        "                    if (fb) {\n"
-        "                        unsigned char hd[0x80];\n"
-        "                        size_t nr = fread(hd, 1, sizeof(hd), fb); fclose(fb);\n"
-        "                        if (nr >= 0x60 && hd[0x20]=='G' && hd[0x21]=='X' && hd[0x22]=='T') {\n"
-        "                            uint32_t io = (uint32_t)hd[0x2c] | ((uint32_t)hd[0x2d]<<8) |\n"
-        "                                          ((uint32_t)hd[0x2e]<<16) | ((uint32_t)hd[0x2f]<<24);\n"
-        "                            if (io + 0x20 <= nr && io + 0x28 <= nr) {\n"
-        "                                uint32_t fm = (uint32_t)hd[io+0x14] | ((uint32_t)hd[io+0x15]<<8) |\n"
-        "                                              ((uint32_t)hd[io+0x16]<<16) | ((uint32_t)hd[io+0x17]<<24);\n"
-        "                                if (fm == 0x0c000000u) {\n"
-        "                                    // Skor = alpha byte pertama (0..255). Pilih yang paling opak.\n"
-        "                                    int sc = hd[io+0x20];\n"
-        "                                    if (sc > gxmview::st.best_score) {\n"
-        "                                        gxmview::st.best_score = sc;\n"
-        "                                        gxmview::st.path = path_cstr;\n"
-        "                                    }\n"
-        "                                }\n"
-        "                            }\n"
-        "                        }\n"
-        "                    }\n"
-        "                }\n"
+        "                // [GXM_RENDER] Murah: cuma simpan path. Decode di draw().\n"
+        "                if (ext == \".bstex\" && gxmview::st.paths.size() < 4096u)\n"
+        "                    gxmview::st.paths.push_back(path_cstr);\n"
         "            }"
     )
     text = text.replace(ANCHOR_SCAN, capture, 1)
