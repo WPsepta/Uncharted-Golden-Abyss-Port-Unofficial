@@ -174,7 +174,12 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
             ++blocks_run;
             return true;
         }
-        // Dump trace saat halt (next_pc==0) agar selalu terlihat di log.
+        // Dump trace saat halt (next_pc==0) — dibatasi: 8 pertama lalu tiap 500.
+        // Tanpa ini, tiap thread yang halt mencetak 32 alamat sehingga log
+        // dibanjiri HALT_DEBUG (sesuai aturan: no per-frame debug spam).
+        static uint32_t _halt_dump_n = 0u;
+        ++_halt_dump_n;
+        if (_halt_dump_n <= 8u || (_halt_dump_n % 500u) == 0u) {
         char tbuf[1024]; size_t tp = 0;
         const uint32_t tn = rc_dbg_hist_n > 32u ? 32u : rc_dbg_hist_n;
         tp += (size_t)std::snprintf(tbuf + tp, sizeof(tbuf) - tp,
@@ -194,6 +199,7 @@ STEP_BLOCK_BODY = r"""bool Cpu::step_block() {
         }
         RC_LOGE("%s", tbuf);
         if (rc_dbg_log_hook) rc_dbg_log_hook("HALT_DEBUG", tbuf);
+        }  // end throttle dump
         running = false;
         return false;
     }
